@@ -8,9 +8,12 @@ class DataLoader:
         self.dataset_name = "zongowo111/v2-crypto-ohlcv-data"
     
     def load_data(self, symbol="BTCUSDT", timeframe="15m"):
-        # 加载HuggingFace数据集
-        dataset = load_dataset(self.dataset_name, f"{symbol}_{timeframe}")
+        # 加载HuggingFace数据集的default配置
+        dataset = load_dataset(self.dataset_name, "default")
         df = pd.DataFrame(dataset["train"])
+        
+        # 筛选对应的交易对和时间框架
+        df = df[(df["symbol"] == symbol) & (df["timeframe"] == timeframe)]
         
         # 转换时间格式
         df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
