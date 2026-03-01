@@ -7,28 +7,18 @@ class V4Config:
     timeframe: str = '15m'
     capital: float = 10000.0
     
-    # 趨勢過濾與進場指標
-    ema_fast: int = 50
-    ema_slow: int = 200
+    # ICT / SMC 核心設定
+    ema_trend: int = 200           # 用於過濾大級別方向 (ICT 偏好順著HTF結構做)
+    fvg_max_age: int = 12          # FVG 有效期 (超過 N 根 K 線未被填補則失效)
     
-    # RSI 放棄，改用更精確的布林帶或 ATR 乖離
-    rsi_period: int = 14
-    rsi_oversold: int = 40    
-    rsi_overbought: int = 60  
+    # 風控與盈虧比 (SMC 標配：固定風險，高盈虧比)
+    risk_per_trade: float = 0.02   # 單筆交易固定虧損 2%
+    max_leverage: int = 20         
     
-    # 價格行為過濾
-    use_price_action: bool = True  
-    
-    # 風控設定 (降低風險，每次只拿1%去試錯)
-    risk_per_trade: float = 0.01   
-    max_leverage: int = 10         
-    
-    atr_period: int = 14
-    atr_sl_multiplier: float = 1.0 # 砍掉那些拖泥帶水的單子，不對就跑
-    atr_tp_multiplier: float = 3.0 # 目標 1:3
+    risk_reward_ratio: float = 3.0 # 固定盈虧比 (預設 1:3)
+    breakeven_r: float = 1.5       # 當獲利達到 1.5R 時，將止損推至保本
     
     fee_rate: float = 0.0004
     slippage: float = 0.0002
     
-    cooldown_bars: int = 8         # 增加冷卻期，防止連續挨打
-    max_hold_bars: int = 48        # 縮短時間止損 (12小時沒噴就走人)
+    cooldown_bars: int = 3         # 交易冷卻期
