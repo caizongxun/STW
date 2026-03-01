@@ -8,6 +8,13 @@ class V8Backtester:
     def __init__(self, config, lstm_model):
         self.config = config
         self.lstm_model = lstm_model
+        self.filter_stats = {
+            'lstm_signals': 0,
+            'pass_confidence': 0,
+            'pass_trend': 0,
+            'pass_pattern': 0,
+            'final_trades': 0
+        }
         
     def run(self, df_15m, df_1h, fe):
         print("[V8] Running LSTM Reversal Strategy...")
@@ -17,15 +24,12 @@ class V8Backtester:
         if 'open_time' in df_1h.columns:
             df_1h['open_time'] = pd.to_datetime(df_1h['open_time'])
         
-        # 裁切回測區間
         if self.config.simulation_days > 0:
             end_time_15m = df_15m['open_time'].max()
             start_time_15m = end_time_15m - timedelta(days=self.config.simulation_days)
             
-            # 只使用訓練後的數據回測
             train_end_idx = int(len(df_15m) * self.config.train_size_pct)
             df_15m_test = df_15m.iloc[train_end_idx:].reset_index(drop=True)
-            
             df_15m_test = df_15m_test[df_15m_test['open_time'] >= start_time_15m].reset_index(drop=True)
             
             print(f"[V8] 回測區間: {df_15m_test['open_time'].min().date()} 至 {df_15m_test['open_time'].max().date()}")
@@ -77,7 +81,7 @@ class V8Backtester:
                     last_trade_date = current_date
             
             # ==========================================
-            # 1. 倉位管理（移動止盈）
+            # 1. 倉位管理
             # ==========================================
             if position != 0:
                 if position > 0:
@@ -94,7 +98,6 @@ class V8Backtester:
                         pnl_usd = position_size_usd * pnl_pct - (position_size_usd * total_fee_rate * 2)
                         capital += pnl_usd
                         
-                        # 記錄預測準確率
                         if pnl_usd > 0:
                             lstm_correct += 1
                         
@@ -138,21 +141,30 @@ class V8Backtester:
                 direction, confidence = self.lstm_model.predict(df_15m_test, i)
                 lstm_predictions += 1
                 
+                if direction == 1:
+                    self.filter_stats['lstm_signals'] += 1
+                
                 if confidence < self.config.lstm_confidence:
                     continue
                 
                 if direction != 1:
                     continue
                 
-                # 雙時間框架確認（1h 趨勢）
+                self.filter_stats['pass_confidence'] += 1
+                
+                # 雙時間框架確認
                 if self.config.enable_dual_timeframe:
                     if not self._check_1h_trend(df_1h, row['open_time']):
                         continue
+                
+                self.filter_stats['pass_trend'] += 1
                 
                 # 反轉形態過濾
                 if self.config.enable_pattern_filter:
                     if not self._check_reversal_pattern(df_15m_test, i):
                         continue
+                
+                self.filter_stats['pass_pattern'] += 1
                 
                 # 開倉
                 position = 1
@@ -168,6 +180,7 @@ class V8Backtester:
                 position_size_usd = min(max_loss / sl_pct, capital * self.config.max_leverage)
                 
                 daily_trades_count += 1
+                self.filter_stats['final_trades'] += 1
         
         # 統計
         wins = len([t for t in trades if t['pnl_usd'] > 0])
@@ -182,20 +195,18 @@ class V8Backtester:
             if days_diff > 0:
                 monthly_return = total_return / (days_diff / 30.0)
         
-        # 計算夏普比率
         returns_series = pd.Series([t['return'] for t in trades])
         sharpe_ratio = (returns_series.mean() / returns_series.std() * np.sqrt(252)) if len(returns_series) > 1 else 0
         
-        # 盈虧比
         total_profit = sum([t['pnl_usd'] for t in trades if t['pnl_usd'] > 0])
         total_loss = abs(sum([t['pnl_usd'] for t in trades if t['pnl_usd'] < 0]))
         profit_factor = total_profit / total_loss if total_loss > 0 else 0
         
-        # 平均持倉時間
         avg_holding_hours = np.mean([t['holding_hours'] for t in trades if 'holding_hours' in t]) if trades else 0
         
-        # LSTM 準確率
         lstm_accuracy = (lstm_correct / lstm_predictions * 100) if lstm_predictions > 0 else 0
+        
+        print(f"[V8] 過濾統計: LSTM信號={self.filter_stats['lstm_signals']}, 通過信心度={self.filter_stats['pass_confidence']}, 通過趨勢={self.filter_stats['pass_trend']}, 最終交易={self.filter_stats['final_trades']}")
         
         return {
             'final_capital': capital,
@@ -210,11 +221,12 @@ class V8Backtester:
             'avg_holding_hours': avg_holding_hours,
             'lstm_train_acc': self.lstm_model.train_accuracy,
             'lstm_test_acc': self.lstm_model.test_accuracy,
-            'winrate_improvement': lstm_accuracy - 50
+            'winrate_improvement': lstm_accuracy - 50,
+            'filter_stats': self.filter_stats
         }
     
     def _check_1h_trend(self, df_1h, current_time_15m):
-        """檢查 1h 趨勢是否符合"""
+        """放寬 1h 趨勢檢查"""
         if 'open_time' not in df_1h.columns:
             return True
         
@@ -224,26 +236,24 @@ class V8Backtester:
         
         row_1h = df_1h_filtered.iloc[-1]
         
-        # 1h 線必須處於上升趨勢中的回調
-        trend_up = (row_1h['ema_12'] > row_1h['ema_26']) and (row_1h['ema_26'] > row_1h['ema_50'])
-        pullback = row_1h['close'] < row_1h['ema_12']  # 回調到 EMA12 下方
+        # 放寬條件：只要不是強烈下跌趨勢即可
+        strong_downtrend = (row_1h['ema_12'] < row_1h['ema_26']) and (row_1h['ema_26'] < row_1h['ema_50']) and (row_1h['rsi'] < 40)
         
-        return trend_up and pullback
+        return not strong_downtrend
     
     def _check_reversal_pattern(self, df, i):
-        """檢查反轉形態"""
+        """放寬反轉形態檢查"""
         if i < 5:
             return False
         
         row = df.iloc[i]
         
-        # 至少滿足一個條件
         conditions = [
-            row['rsi'] < 35,  # RSI 超賣
-            row['zscore_20'] < -1.5,  # Z-Score 超賣
-            row['is_pin_bar_bullish'] == 1,  # 看漲 Pin Bar
-            row['is_bullish_engulfing'] == 1,  # 看漲呠噬
-            row['rsi_divergence_bullish'] == 1  # RSI 看漲背離
+            row['rsi'] < 40,  # 放宬到 40
+            row['zscore_20'] < -1.0,  # 放宬到 -1.0
+            row['is_pin_bar_bullish'] == 1,
+            row['is_bullish_engulfing'] == 1,
+            row['rsi_divergence_bullish'] == 1
         ]
         
         return sum(conditions) >= 1
