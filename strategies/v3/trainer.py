@@ -1,47 +1,87 @@
-import xgboost as xgb
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from .features import generate_features
-from .labels import generate_labels
-import joblib
-import os
 import pandas as pd
+import numpy as np
+import lightgbm as lgb
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from .features import V3FeatureEngine
+from .labels import V3LabelGenerator
 
-def train_model(data, config):
-    # 生成特征和标签
-    df = generate_features(data)
-    y = generate_labels(df, config)
-    
-    # 准备数据
-    X = df.drop(["open_time", "close_time", "open", "high", "low", "close", "volume", 
-                 "quote_volume", "count", "taker_buy_volume", "taker_buy_quote_volume", 
-                 "number_of_trades"], axis=1)
-    
-    # 划分训练集和测试集
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    
-    # 标准化
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-    
-    # 训练模型
-    model = xgb.XGBClassifier(
-        objective="multi:softmax",
-        num_class=3,
-        max_depth=config.max_depth,
-        learning_rate=0.1,
-        n_estimators=100,
-        random_state=42
-    )
-    model.fit(X_train, y_train)
-    
-    # 保存模型
-    model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
-                             "models", f"{config.symbol}_{config.timeframe}_v1_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}")
-    os.makedirs(model_dir, exist_ok=True)
-    joblib.dump(model, os.path.join(model_dir, "model_0.pkl"))
-    joblib.dump(config.__dict__, os.path.join(model_dir, "config.pkl"))
-    joblib.dump(X.columns.tolist(), os.path.join(model_dir, "features.pkl"))
-    
-    return model, X, y
+class V3Trainer:
+    def __init__(self, config):
+        self.config = config
+        self.long_model = None
+        self.short_model = None
+        self.feature_names = []
+        
+    def train(self, df):
+        print("[V3 Triple Barrier Strategy Training]")
+        
+        fe = V3FeatureEngine(self.config)
+        df = fe.generate(df)
+        
+        lg = V3LabelGenerator(self.config)
+        df = lg.generate(df)
+        
+        self.feature_names = fe.get_feature_names(df)
+        X = df[self.feature_names]
+        
+        valid = df['label_long'].notna()
+        X = X[valid]
+        y_long = df['label_long'][valid]
+        y_short = df['label_short'][valid]
+        
+        # 避免未來函數，採時間序列切分
+        train_size = int(len(X) * 0.8)
+        X_train, X_test = X.iloc[:train_size], X.iloc[train_size:]
+        yl_train, yl_test = y_long.iloc[:train_size], y_long.iloc[train_size:]
+        ys_train, ys_test = y_short.iloc[:train_size], y_short.iloc[train_size:]
+        
+        print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+        print(f"Long samples: {yl_train.sum()} ({yl_train.sum()/len(yl_train)*100:.1f}%)")
+        print(f"Short samples: {ys_train.sum()} ({ys_train.sum()/len(ys_train)*100:.1f}%)")
+        
+        # 處理極端不平衡，如果沒有正樣本則設為1
+        long_weight = (len(yl_train) - yl_train.sum()) / max(1, yl_train.sum())
+        short_weight = (len(ys_train) - ys_train.sum()) / max(1, ys_train.sum())
+        
+        params = {
+            'objective': 'binary',
+            'num_leaves': self.config.num_leaves,
+            'learning_rate': self.config.learning_rate,
+            'max_depth': self.config.max_depth,
+            'reg_alpha': self.config.reg_alpha,
+            'n_estimators': self.config.n_estimators,
+            'verbose': -1,
+            'random_state': 42
+        }
+        
+        # Train Long
+        print("Training Long Model...")
+        self.long_model = lgb.LGBMClassifier(**params, scale_pos_weight=long_weight)
+        self.long_model.fit(X_train, yl_train)
+        
+        # Train Short
+        print("Training Short Model...")
+        self.short_model = lgb.LGBMClassifier(**params, scale_pos_weight=short_weight)
+        self.short_model.fit(X_train, ys_train)
+        
+        # Eval
+        long_prob = self.long_model.predict_proba(X_test)[:, 1]
+        short_prob = self.short_model.predict_proba(X_test)[:, 1]
+        
+        long_pred = (long_prob > self.config.signal_threshold).astype(int)
+        short_pred = (short_prob > self.config.signal_threshold).astype(int)
+        
+        results = {
+            'long_metrics': {
+                'auc': float(roc_auc_score(yl_test, long_prob)),
+                'precision': float(precision_score(yl_test, long_pred, zero_division=0)),
+                'recall': float(recall_score(yl_test, long_pred, zero_division=0))
+            },
+            'short_metrics': {
+                'auc': float(roc_auc_score(ys_test, short_prob)),
+                'precision': float(precision_score(ys_test, short_pred, zero_division=0)),
+                'recall': float(recall_score(ys_test, short_pred, zero_division=0))
+            }
+        }
+        
+        return results

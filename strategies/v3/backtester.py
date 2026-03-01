@@ -1,91 +1,95 @@
-import numpy as np
 import pandas as pd
+import numpy as np
 
-def run_backtest(model, X, data, config):
-    # 预测信号
-    predictions = model.predict(X)
-    
-    # 模拟交易
-    capital = config.capital
-    position = 0
-    trades = []
-    account_value = [capital]
-    
-    # 对齐数据
-    trade_data = data.iloc[len(data)-len(X):].reset_index(drop=True)
-    
-    for i, (pred, close) in enumerate(zip(predictions, trade_data["close"])):
-        current_value = account_value[-1]
+class V3Backtester:
+    def __init__(self, config):
+        self.config = config
         
-        # 做多信号
-        if pred == 1 and position == 0:
-            # 开多仓
-            position_size = (current_value * config.position_pct * config.leverage) / close
-            entry_price = close
-            position = position_size
-            trades.append({
-                "type": "LONG",
-                "entry_time": trade_data["open_time"].iloc[i],
-                "entry_price": entry_price,
-                "position_size": position_size
-            })
-        # 做空信号
-        elif pred == -1 and position == 0:
-            # 开空仓
-            position_size = (current_value * config.position_pct * config.leverage) / close
-            entry_price = close
-            position = -position_size
-            trades.append({
-                "type": "SHORT",
-                "entry_time": trade_data["open_time"].iloc[i],
-                "entry_price": entry_price,
-                "position_size": position_size
-            })
-        # 平仓信号
-        elif pred == 0 and position != 0:
-            # 平仓
-            exit_price = close
-            if position > 0:
-                profit = (exit_price - entry_price) * position
-            else:
-                profit = (entry_price - exit_price) * abs(position)
+    def run(self, df, long_model, short_model, fe):
+        print("[V3] Backtesting...")
+        
+        df = fe.generate(df)
+        X = df[fe.get_feature_names(df)]
+        
+        df['long_prob'] = long_model.predict_proba(X)[:, 1]
+        df['short_prob'] = short_model.predict_proba(X)[:, 1]
+        
+        capital = self.config.capital
+        position = 0
+        entry_price = 0
+        entry_idx = 0
+        trades = []
+        equity_curve = []
+        
+        for i in range(1, len(df)):
+            row = df.iloc[i]
+            equity_curve.append(capital)
             
-            current_value += profit
-            account_value.append(current_value)
-            position = 0
-            trades[-1]["exit_time"] = trade_data["open_time"].iloc[i]
-            trades[-1]["exit_price"] = exit_price
-            trades[-1]["profit"] = profit
-    
-    # 计算指标
-    final_value = account_value[-1]
-    total_return = (final_value - config.capital) / config.capital
-    monthly_return = (1 + total_return) ** (30 / len(trade_data)) - 1
-    
-    win_trades = [t for t in trades if t.get("profit", 0) > 0]
-    win_rate = len(win_trades) / len(trades) if trades else 0
-    
-    total_profit = sum(t.get("profit", 0) for t in win_trades)
-    total_loss = sum(abs(t.get("profit", 0)) for t in trades if t.get("profit", 0) < 0)
-    profit_factor = total_profit / total_loss if total_loss != 0 else 0
-    
-    # 计算最大回撤
-    peak = account_value[0]
-    max_drawdown = 0
-    for value in account_value:
-        if value > peak:
-            peak = value
-        drawdown = (peak - value) / peak
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
-    
-    metrics = {
-        "total_return": total_return,
-        "monthly_return": monthly_return,
-        "win_rate": win_rate,
-        "profit_factor": profit_factor,
-        "max_drawdown": max_drawdown,
-        "total_trades": len(trades)
-    }
-    
-    return metrics, predictions
+            # Exit logic
+            if position > 0:
+                # 止損
+                if row['low'] < entry_price - row['atr'] * self.config.atr_sl_multiplier:
+                    exit_price = entry_price - row['atr'] * self.config.atr_sl_multiplier
+                    pnl = (exit_price - entry_price) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'sl_long', 'pnl': pnl})
+                # 止盈
+                elif row['high'] > entry_price + row['atr'] * self.config.atr_tp_multiplier:
+                    exit_price = entry_price + row['atr'] * self.config.atr_tp_multiplier
+                    pnl = (exit_price - entry_price) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'tp_long', 'pnl': pnl})
+                # 時間止損 (三重障礙)
+                elif i - entry_idx >= self.config.t_events_bars:
+                    pnl = (row['close'] - entry_price) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'time_long', 'pnl': pnl})
+                    
+            elif position < 0:
+                # 止損
+                if row['high'] > entry_price + row['atr'] * self.config.atr_sl_multiplier:
+                    exit_price = entry_price + row['atr'] * self.config.atr_sl_multiplier
+                    pnl = (entry_price - exit_price) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'sl_short', 'pnl': pnl})
+                # 止盈
+                elif row['low'] < entry_price - row['atr'] * self.config.atr_tp_multiplier:
+                    exit_price = entry_price - row['atr'] * self.config.atr_tp_multiplier
+                    pnl = (entry_price - exit_price) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'tp_short', 'pnl': pnl})
+                # 時間止損
+                elif i - entry_idx >= self.config.t_events_bars:
+                    pnl = (entry_price - row['close']) / entry_price * self.config.leverage
+                    capital *= (1 + pnl - self.config.fee_rate*2)
+                    position = 0
+                    trades.append({'type': 'time_short', 'pnl': pnl})
+                    
+            # Entry logic (只在空倉時)
+            if position == 0:
+                # 底部反轉做多：高機率 + 超賣 + 大級別趨勢配合
+                if row['long_prob'] > self.config.signal_threshold and row['rsi'] < 30 and row['1h_sma20'] > row['1h_sma50']:
+                    position = 1
+                    entry_price = row['close']
+                    entry_idx = i
+                # 頂部反轉做空：高機率 + 超買 + 大級別趨勢配合
+                elif row['short_prob'] > self.config.signal_threshold and row['rsi'] > 70 and row['1h_sma20'] < row['1h_sma50']:
+                    position = -1
+                    entry_price = row['close']
+                    entry_idx = i
+                    
+        wins = len([t for t in trades if t['pnl'] > 0])
+        total = len(trades)
+        win_rate = wins / total if total > 0 else 0
+        
+        return {
+            'final_capital': capital,
+            'return_pct': (capital - self.config.capital) / self.config.capital * 100,
+            'total_trades': total,
+            'win_rate': win_rate * 100
+        }
