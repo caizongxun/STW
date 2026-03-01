@@ -6,8 +6,8 @@ from .features import V3FeatureEngine
 from core.data_loader import DataLoader
 
 def render():
-    st.header("V3 - 激進高收益模型 (Target: 30%/Month)")
-    st.info("透過提高資金利用率、拉高盈虧比 (保本推移策略) 與動態高槓桿，追求高額報酬。高報酬伴隨高回撤。")
+    st.header("V3 - 順勢接刀策略 (Target: 30%/Month)")
+    st.info("拋棄高槓桿豪賭，改用機構級的「固定風險倉位管理 (Fixed Risk Sizing)」與「宏觀趨勢過濾」。只做大趨勢中的回調反轉。")
     
     tab1, tab2 = st.tabs(["模型訓練", "策略回測"])
     
@@ -21,33 +21,32 @@ def render_training():
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("進攻型參數設定")
-        symbol = st.selectbox("交易對 (V3)", ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'DOGEUSDT'])
+        st.subheader("參數設定")
+        symbol = st.selectbox("交易對 (V3)", ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT'])
         timeframe = '15m'
         
-        st.markdown("### 資金與槓桿")
-        leverage = st.slider("合約槓桿倍數", 1, 50, 10, 1)
-        position_pct = st.slider("單筆開倉比例 (%)", 10, 100, 50, 10) / 100.0
+        st.markdown("### 機構級風控 (核心)")
+        st.caption("無論波動多大，保證單筆止損最多只虧帳戶的 N%。系統會自動計算開倉槓桿。")
+        risk_per_trade = st.slider("單筆風險 (Risk %)", 1.0, 10.0, 3.0, 0.5) / 100.0
         
-        st.markdown("### 策略敏銳度")
-        signal_threshold = st.slider("AI 進場概率閾值", 0.50, 0.80, 0.58, 0.02)
-        cooldown = st.slider("冷卻期 (抓連勝不休息)", 0, 10, 2, 1)
+        st.markdown("### 策略邏輯")
+        use_trend = st.checkbox("啟用大級別趨勢過濾 (EMA200) 推薦!", value=True)
+        signal_threshold = st.slider("AI 進場概率閾值", 0.50, 0.70, 0.55, 0.01)
         
-        st.markdown("### 盈虧比設定 (大賺小賠)")
-        atr_sl = st.slider("止損乘數 (ATR)", 0.5, 3.0, 1.2, 0.1)
-        atr_tp = st.slider("止盈乘數 (ATR)", 1.0, 5.0, 3.5, 0.1)
+        st.markdown("### 盈虧比設定")
+        atr_sl = st.slider("止損乘數 (ATR)", 0.5, 3.0, 1.5, 0.1)
+        atr_tp = st.slider("止盈乘數 (ATR)", 1.0, 6.0, 4.0, 0.1)
         
         train_btn = st.button("開始訓練 V3", type="primary", use_container_width=True)
         
     with col2:
         if train_btn:
-            with st.spinner("加載數據與訓練中 (高參數量)..."):
+            with st.spinner("優化模型訓練中 (引入防過擬合機制)..."):
                 config = V3Config(
                     symbol=symbol,
                     signal_threshold=signal_threshold,
-                    cooldown_bars=cooldown,
-                    leverage=leverage,
-                    position_pct=position_pct,
+                    risk_per_trade=risk_per_trade,
+                    use_trend_filter=use_trend,
                     atr_sl_multiplier=atr_sl,
                     atr_tp_multiplier=atr_tp
                 )
@@ -70,7 +69,6 @@ def render_training():
                     col_a, col_b, col_c = st.columns(3)
                     col_a.metric("總報酬 (%)", f"{bt_results['return_pct']:.2f}%")
                     
-                    # 判斷是否有月化報酬
                     if 'monthly_return' in bt_results and bt_results['monthly_return'] != 0:
                         col_b.metric("預估月化報酬", f"{bt_results['monthly_return']:.2f}%")
                     else:
