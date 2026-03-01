@@ -41,26 +41,27 @@ class V6Backtester:
                 break
             
             # ==========================================
-            # 1. 檢查現有套利倉位，收取資金費率
+            # 1. 檢查現有套利倉位，每 8 根 K 線（8 小時）收取一次資金費率
             # ==========================================
             for pos in positions:
-                # 每根 K 線（8 小時）結算一次資金費率
-                funding_rate = row['simulated_funding_rate']
-                
-                if funding_rate > 0:
-                    # 資金費率為正：多頭支付空頭，我們做空合約收錢
-                    funding_income = pos['position_size'] * funding_rate
-                    capital += funding_income
-                    total_funding_earned += funding_income
-                    funding_collections += 1
-                    pos['total_earned'] += funding_income
-                else:
-                    # 資金費率為負：空頭支付多頭，我們虧損
-                    funding_loss = pos['position_size'] * abs(funding_rate)
-                    capital -= funding_loss
-                    pos['total_earned'] -= funding_loss
-                
                 pos['holding_bars'] += 1
+                
+                # 每 8 根 K 線結算一次資金費率
+                if pos['holding_bars'] % 8 == 0:
+                    funding_rate = row['simulated_funding_rate']
+                    
+                    if funding_rate > 0:
+                        # 資金費率為正：多頭支付空頭，我們做空合約收錢
+                        funding_income = pos['position_size'] * funding_rate
+                        capital += funding_income
+                        total_funding_earned += funding_income
+                        funding_collections += 1
+                        pos['total_earned'] += funding_income
+                    else:
+                        # 資金費率為負：空頭支付多頭，我們虧損
+                        funding_loss = pos['position_size'] * abs(funding_rate)
+                        capital -= funding_loss
+                        pos['total_earned'] -= funding_loss
             
             # ==========================================
             # 2. 檢查是否需要平倉
