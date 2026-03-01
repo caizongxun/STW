@@ -1,15 +1,25 @@
-# Smart Trading Terminal (STT) - Streamlit主界面入口
 import streamlit as st
-from strategies import AVAILABLE_VERSIONS
+import sys
+from pathlib import Path
+
+# Add project root to path
+sys.path.append(str(Path(__file__).parent))
+
+from strategies import v1, v2, v3
+
+AVAILABLE_VERSIONS = {
+    'v1': v1,
+    'v2': v2,
+    'v3': v3
+}
 
 def main():
-    st.title("Smart Trading Terminal (STT)")
-    st.subheader("模块化加密货币机器学习交易系统")
+    st.set_page_config(page_title="Smart Trading Terminal", layout="wide")
     
-    # 选择策略版本
-    version = st.selectbox("选择策略版本", list(AVAILABLE_VERSIONS.keys()))
+    st.sidebar.title("STT Version Control")
+    version = st.sidebar.radio("Select Strategy Version", list(AVAILABLE_VERSIONS.keys()), index=2)
     
-    # 渲染对应版本的界面
+    # Render selected version
     AVAILABLE_VERSIONS[version].render()
 
 if __name__ == "__main__":
