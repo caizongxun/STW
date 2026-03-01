@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from datetime import timedelta
 
 class V4Backtester:
     def __init__(self, config):
@@ -15,6 +16,13 @@ class V4Backtester:
             df['hour'] = df['open_time'].dt.hour
         else:
             df['hour'] = 12 
+            
+        # 根據設定的天數裁切資料 (從最後一天往前推)
+        if self.config.simulation_days > 0 and 'open_time' in df.columns:
+            end_time = df['open_time'].max()
+            start_time = end_time - timedelta(days=self.config.simulation_days)
+            df = df[df['open_time'] >= start_time].reset_index(drop=True)
+            print(f"[V4] 回測區間: {start_time.date()} 至 {end_time.date()} (共 {self.config.simulation_days} 天)")
             
         capital = self.config.capital
         peak_capital = capital 
@@ -34,7 +42,7 @@ class V4Backtester:
         
         trades = []
         equity_curve = []
-        leverage_used = [] # 記錄每次開倉的實際槓桿
+        leverage_used = []
         
         start_time = df['open_time'].iloc[0] if 'open_time' in df.columns else None
         end_time = df['open_time'].iloc[-1] if 'open_time' in df.columns else None
@@ -216,7 +224,6 @@ class V4Backtester:
         if start_time is not None and end_time is not None:
             days_diff = (end_time - start_time).days
             if days_diff > 0:
-                # 簡單平均月化 (非複利計算，因為複利計算在總回報極高時會讓月化看起來很小)
                 monthly_return = total_return / (days_diff / 30.0)
                 
         avg_win = np.mean([t['return'] for t in trades if t['pnl_usd'] > 0]) if wins > 0 else 0

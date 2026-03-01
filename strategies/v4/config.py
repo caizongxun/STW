@@ -7,9 +7,12 @@ class V4Config:
     timeframe: str = '15m'
     capital: float = 10000.0
     
-    # 資金管理：複利模式 (Compounding) 才是達成 30% 月化的關鍵
-    use_compounding: bool = True   # 是否使用滾雪球(複利)
-    risk_per_trade: float = 0.03   # 拉高單筆風險到 3% (既然勝率超過50%，可以更大膽)
+    # 回測天數設定 (0 = 跑全部歷史資料)
+    simulation_days: int = 0
+    
+    # 資金管理：複利模式
+    use_compounding: bool = True   
+    risk_per_trade: float = 0.03   
     max_leverage: int = 30         # 允許更高的槓桿來支撐緊湊的止損
     
     # 時間過濾 (Kill Zones) - 避開亞洲垃圾時間
@@ -26,7 +29,7 @@ class V4Config:
     require_sweep: bool = True     
     sweep_lookback: int = 15       
     
-    # 盈虧比設定 (維持現有最佳狀態)
+    # 盈虧比設定
     risk_reward_ratio: float = 2.5 
     breakeven_r: float = 1.0       
     
