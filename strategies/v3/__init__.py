@@ -6,8 +6,8 @@ from .features import V3FeatureEngine
 from core.data_loader import DataLoader
 
 def render():
-    st.header("V3 - 三重障礙反轉策略 (Optimized)")
-    st.info("已應用豆包優化建議：引入SMOTE過採樣、新增高階技術與形態特徵、動態寬容標籤、並放寬進場閾值。")
+    st.header("V3 - 三重障礙反轉策略 (二次優化版)")
+    st.info("解決過度交易問題：引入冷卻期、多因子信號過濾、真實交易成本計算與倉位風險控制。")
     
     tab1, tab2 = st.tabs(["模型訓練", "策略回測"])
     
@@ -25,25 +25,24 @@ def render_training():
         symbol = st.selectbox("交易對 (V3)", ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'])
         timeframe = '15m'
         
-        st.markdown("### 三重障礙設定")
-        # 根據建議，縮小止盈止損乘數，讓標籤更容易觸發 (增加正樣本)
-        pt_sl = st.slider("止盈止損乘數 (ATR)", 0.5, 3.0, 1.5, 0.1)
-        t_bars = st.slider("時間障礙 (K線數)", 24, 200, 48, 12)
-        
-        st.markdown("### 模型設定")
-        # 降低進場閾值，提升 Recall
-        signal_threshold = st.slider("進場概率閾值", 0.5, 0.9, 0.6, 0.05)
+        st.markdown("### 信號與風控設定")
+        # 提高預設閾值過濾假信號
+        signal_threshold = st.slider("進場概率閾值", 0.5, 0.9, 0.65, 0.05)
+        # 冷卻期
+        cooldown = st.slider("交易冷卻期 (K線數)", 0, 20, 5, 1)
+        # 倉位控制
+        position_pct = st.slider("單筆最大倉位 (%)", 5, 100, 10, 5) / 100.0
         
         train_btn = st.button("開始訓練 V3", type="primary", use_container_width=True)
         
     with col2:
         if train_btn:
-            with st.spinner("加載數據與訓練中 (包含SMOTE過採樣，請稍候)..."):
+            with st.spinner("加載數據與訓練中..."):
                 config = V3Config(
                     symbol=symbol,
-                    pt_sl_ratio=[pt_sl, pt_sl],
-                    t_events_bars=t_bars,
-                    signal_threshold=signal_threshold
+                    signal_threshold=signal_threshold,
+                    cooldown_bars=cooldown,
+                    position_pct=position_pct
                 )
                 
                 loader = DataLoader()
@@ -61,11 +60,17 @@ def render_training():
                     test_df = df.iloc[int(len(df)*0.8):].reset_index(drop=True)
                     bt_results = bt.run(test_df, trainer.long_model, trainer.short_model, V3FeatureEngine(config))
                     
-                    col_a, col_b, col_c = st.columns(3)
+                    col_a, col_b, col_c, col_d = st.columns(4)
                     col_a.metric("總報酬 (%)", f"{bt_results['return_pct']:.2f}%")
-                    col_b.metric("總交易次數", bt_results['total_trades'])
-                    col_c.metric("勝率 (%)", f"{bt_results['win_rate']:.2f}%")
+                    col_b.metric("最大回撤 (%)", f"{bt_results['max_drawdown']:.2f}%")
+                    col_c.metric("總交易次數", bt_results['total_trades'])
+                    col_d.metric("勝率 (%)", f"{bt_results['win_rate']:.2f}%")
                     
-                    st.json(bt_results)
+                    if bt_results['return_pct'] < 0:
+                        st.warning("策略仍處於虧損狀態，請嘗試調整「進場概率閾值」或增加「交易冷卻期」。")
+                    elif bt_results['total_trades'] < 10:
+                        st.info("交易次數偏少，策略偏向保守。")
+                    else:
+                        st.balloons()
                 else:
                     st.error("無法加載數據")
