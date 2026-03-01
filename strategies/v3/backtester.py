@@ -25,23 +25,19 @@ class V3Backtester:
             row = df.iloc[i]
             equity_curve.append(capital)
             
-            # Exit logic
             if position > 0:
-                # 止損
                 if row['low'] < entry_price - row['atr'] * self.config.atr_sl_multiplier:
                     exit_price = entry_price - row['atr'] * self.config.atr_sl_multiplier
                     pnl = (exit_price - entry_price) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
                     position = 0
                     trades.append({'type': 'sl_long', 'pnl': pnl})
-                # 止盈
                 elif row['high'] > entry_price + row['atr'] * self.config.atr_tp_multiplier:
                     exit_price = entry_price + row['atr'] * self.config.atr_tp_multiplier
                     pnl = (exit_price - entry_price) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
                     position = 0
                     trades.append({'type': 'tp_long', 'pnl': pnl})
-                # 時間止損 (三重障礙)
                 elif i - entry_idx >= self.config.t_events_bars:
                     pnl = (row['close'] - entry_price) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
@@ -49,36 +45,31 @@ class V3Backtester:
                     trades.append({'type': 'time_long', 'pnl': pnl})
                     
             elif position < 0:
-                # 止損
                 if row['high'] > entry_price + row['atr'] * self.config.atr_sl_multiplier:
                     exit_price = entry_price + row['atr'] * self.config.atr_sl_multiplier
                     pnl = (entry_price - exit_price) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
                     position = 0
                     trades.append({'type': 'sl_short', 'pnl': pnl})
-                # 止盈
                 elif row['low'] < entry_price - row['atr'] * self.config.atr_tp_multiplier:
                     exit_price = entry_price - row['atr'] * self.config.atr_tp_multiplier
                     pnl = (entry_price - exit_price) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
                     position = 0
                     trades.append({'type': 'tp_short', 'pnl': pnl})
-                # 時間止損
                 elif i - entry_idx >= self.config.t_events_bars:
                     pnl = (entry_price - row['close']) / entry_price * self.config.leverage
                     capital *= (1 + pnl - self.config.fee_rate*2)
                     position = 0
                     trades.append({'type': 'time_short', 'pnl': pnl})
                     
-            # Entry logic (只在空倉時)
             if position == 0:
-                # 底部反轉做多：高機率 + 超賣 + 大級別趨勢配合
-                if row['long_prob'] > self.config.signal_threshold and row['rsi'] < 30 and row['1h_sma20'] > row['1h_sma50']:
+                # 放寬回測時的進場條件：移除過於嚴格的RSI限制，直接依賴模型的機率判斷
+                if row['long_prob'] > self.config.signal_threshold:
                     position = 1
                     entry_price = row['close']
                     entry_idx = i
-                # 頂部反轉做空：高機率 + 超買 + 大級別趨勢配合
-                elif row['short_prob'] > self.config.signal_threshold and row['rsi'] > 70 and row['1h_sma20'] < row['1h_sma50']:
+                elif row['short_prob'] > self.config.signal_threshold:
                     position = -1
                     entry_price = row['close']
                     entry_idx = i

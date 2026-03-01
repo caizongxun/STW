@@ -6,8 +6,8 @@ from .features import V3FeatureEngine
 from core.data_loader import DataLoader
 
 def render():
-    st.header("V3 - 三重障礙反轉策略 (Triple Barrier Reversal)")
-    st.info("基於《Advances in Financial Machine Learning》中的三重障礙法，加入時間停損與動態波動率標籤。")
+    st.header("V3 - 三重障礙反轉策略 (Optimized)")
+    st.info("已應用豆包優化建議：引入SMOTE過採樣、新增高階技術與形態特徵、動態寬容標籤、並放寬進場閾值。")
     
     tab1, tab2 = st.tabs(["模型訓練", "策略回測"])
     
@@ -26,17 +26,19 @@ def render_training():
         timeframe = '15m'
         
         st.markdown("### 三重障礙設定")
-        pt_sl = st.slider("止盈止損乘數 (ATR)", 1.0, 5.0, 2.0, 0.5)
-        t_bars = st.slider("時間障礙 (K線數)", 24, 200, 96, 24)
+        # 根據建議，縮小止盈止損乘數，讓標籤更容易觸發 (增加正樣本)
+        pt_sl = st.slider("止盈止損乘數 (ATR)", 0.5, 3.0, 1.5, 0.1)
+        t_bars = st.slider("時間障礙 (K線數)", 24, 200, 48, 12)
         
         st.markdown("### 模型設定")
-        signal_threshold = st.slider("進場概率閾值", 0.5, 0.9, 0.7, 0.05)
+        # 降低進場閾值，提升 Recall
+        signal_threshold = st.slider("進場概率閾值", 0.5, 0.9, 0.6, 0.05)
         
         train_btn = st.button("開始訓練 V3", type="primary", use_container_width=True)
         
     with col2:
         if train_btn:
-            with st.spinner("加載數據與訓練中..."):
+            with st.spinner("加載數據與訓練中 (包含SMOTE過採樣，請稍候)..."):
                 config = V3Config(
                     symbol=symbol,
                     pt_sl_ratio=[pt_sl, pt_sl],
@@ -54,7 +56,6 @@ def render_training():
                     st.success("V3 訓練完成！")
                     st.json(results)
                     
-                    # 進行樣本外回測
                     st.subheader("樣本外回測 (Out of Sample)")
                     bt = V3Backtester(config)
                     test_df = df.iloc[int(len(df)*0.8):].reset_index(drop=True)
