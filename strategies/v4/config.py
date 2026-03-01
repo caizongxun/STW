@@ -7,18 +7,26 @@ class V4Config:
     timeframe: str = '15m'
     capital: float = 10000.0
     
-    # ICT / SMC 核心設定
-    ema_trend: int = 200           # 用於過濾大級別方向 (ICT 偏好順著HTF結構做)
-    fvg_max_age: int = 12          # FVG 有效期 (超過 N 根 K 線未被填補則失效)
+    # HTF (高時間框架) 趨勢過濾
+    ema_trend: int = 200
     
-    # 風控與盈虧比 (SMC 標配：固定風險，高盈虧比)
-    risk_per_trade: float = 0.02   # 單筆交易固定虧損 2%
-    max_leverage: int = 20         
+    # FVG 品質過濾 (核心優化)
+    fvg_min_size_atr: float = 0.5  # FVG 的缺口大小必須至少有 0.5 倍 ATR (避免無意義的小缺口)
+    fvg_max_age: int = 8           # 縮短有效期，趁熱吃
     
-    risk_reward_ratio: float = 3.0 # 固定盈虧比 (預設 1:3)
-    breakeven_r: float = 1.5       # 當獲利達到 1.5R 時，將止損推至保本
+    # Liquidity Sweep (流動性掠奪)
+    require_sweep: bool = True     # 是否要求在形成 FVG 前，必須先掃過近期的流動性(前高/前低)
+    sweep_lookback: int = 15       # 尋找前高前低的區間
+    
+    # 風控設定
+    risk_per_trade: float = 0.015  # 單筆風險 1.5%
+    max_leverage: int = 15
+    
+    # 盈虧比設定
+    risk_reward_ratio: float = 2.5 # 調降至 2.5，提高勝率
+    breakeven_r: float = 1.0       # 更早保本，只要跑出 1R 的獲利就設為不虧
     
     fee_rate: float = 0.0004
     slippage: float = 0.0002
     
-    cooldown_bars: int = 3         # 交易冷卻期
+    cooldown_bars: int = 5

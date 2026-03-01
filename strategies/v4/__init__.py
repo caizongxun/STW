@@ -5,39 +5,42 @@ from .features import V4FeatureEngine
 from core.data_loader import DataLoader
 
 def render():
-    st.header("V4 - SMC / ICT Fair Value Gap (FVG) 策略")
-    st.info("純 SMC 邏輯：不依賴傳統 RSI 或 MACD，而是專注於「市場結構」與「流動性不平衡(FVG)」。精準狙擊機構訂單塊。")
+    st.header("V4 - SMC (流動性掠奪 + FVG 狙擊)")
+    st.info("解決低勝率問題：加入 ICT 的靈魂「Liquidity Sweep (流動性掠奪)」。只有在掃掉散戶止損後形成的真空區，才是真正的高勝率進場點。")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("SMC 策略參數")
+        st.subheader("SMC 進階參數")
         symbol = st.selectbox("交易對 (V4)", ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'DOGEUSDT'])
         timeframe = '15m'
         
-        st.markdown("### 訂單塊 (FVG) 設定")
-        ema_trend = st.number_input("大級別趨勢過濾 (EMA)", value=200, help="ICT 講求順勢，只在多頭結構下買入看漲 FVG")
-        fvg_max_age = st.slider("FVG 有效期 (K線數)", 3, 50, 12, 1, help="缺口產生後，多久之內回踩才有效")
+        st.markdown("### FVG 品質過濾")
+        fvg_min_size = st.slider("FVG 最小缺口 (ATR 倍數)", 0.1, 2.0, 0.5, 0.1, help="過濾掉太小的無意義缺口")
         
-        st.markdown("### 狙擊手風控 (Fixed Risk)")
-        risk_per_trade = st.slider("單筆止損風險 (Risk %)", 0.5, 5.0, 2.0, 0.5, help="無論止損距離多遠，打止損固定只虧總資金的 N%") / 100.0
+        st.markdown("### 流動性掠奪 (Liquidity Sweep)")
+        require_sweep = st.checkbox("必須有流動性掠奪 (強烈建議)", value=True, help="FVG 發生前，必須先跌破前低/突破前高")
+        sweep_lookback = st.slider("尋找前高低點的區間 (K線數)", 5, 50, 15, 5)
         
-        st.markdown("### 盈虧比 (R:R)")
+        st.markdown("### 風控與盈虧比")
+        risk_per_trade = st.slider("單筆止損風險 (Risk %)", 0.5, 5.0, 1.5, 0.5) / 100.0
+        
         col_rr1, col_rr2 = st.columns(2)
         with col_rr1:
-            rr_ratio = st.number_input("目標盈虧比 (R)", value=3.0, step=0.5, help="止盈距離是止損距離的幾倍")
+            rr_ratio = st.number_input("目標盈虧比 (R)", value=2.5, step=0.5)
         with col_rr2:
-            be_ratio = st.number_input("保本推移 (R)", value=1.5, step=0.1, help="當獲利達到幾倍 R 時，將止損移至成本價")
+            be_ratio = st.number_input("保本推移 (R)", value=1.0, step=0.1, help="提早保本提升勝率")
             
-        test_btn = st.button("開始回測 SMC", type="primary", use_container_width=True)
+        test_btn = st.button("開始回測 高勝率 SMC", type="primary", use_container_width=True)
         
     with col2:
         if test_btn:
-            with st.spinner("掃描市場結構與 FVG 中..."):
+            with st.spinner("計算流動性矩陣與 FVG..."):
                 config = V4Config(
                     symbol=symbol,
-                    ema_trend=ema_trend,
-                    fvg_max_age=fvg_max_age,
+                    fvg_min_size_atr=fvg_min_size,
+                    require_sweep=require_sweep,
+                    sweep_lookback=sweep_lookback,
                     risk_per_trade=risk_per_trade,
                     risk_reward_ratio=rr_ratio,
                     breakeven_r=be_ratio
@@ -51,7 +54,7 @@ def render():
                     fe = V4FeatureEngine(config)
                     bt_results = bt.run(df, fe)
                     
-                    st.success(f"SMC 回測完成！ ({symbol} {timeframe})")
+                    st.success(f"回測完成！ ({symbol} {timeframe})")
                     
                     col_a, col_b, col_c = st.columns(3)
                     col_a.metric("總報酬 (%)", f"{bt_results['return_pct']:.2f}%")

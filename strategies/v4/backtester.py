@@ -6,7 +6,7 @@ class V4Backtester:
         self.config = config
         
     def run(self, df, fe):
-        print("[V4] Running ICT / SMC Fair Value Gap Strategy...")
+        print("[V4] Running High-Prob ICT Strategy (Liquidity Sweep + FVG)...")
         
         df = fe.generate(df)
         
@@ -17,12 +17,10 @@ class V4Backtester:
         last_exit_idx = -self.config.cooldown_bars
         position_size_usd = 0 
         
-        # 動態止損與止盈
         current_sl_price = 0
         current_tp_price = 0
         sl_distance = 0
         
-        # ICT 狀態追蹤
         active_bull_fvg = None
         active_bear_fvg = None
         
@@ -34,7 +32,10 @@ class V4Backtester:
         
         total_fee_rate = self.config.fee_rate + self.config.slippage
         
-        # 從第3根開始(因為FVG需要3根K線確認)
+        # 追蹤最近一次的流動性掠奪
+        last_sweep_low_idx = -999
+        last_sweep_high_idx = -999
+        
         for i in range(2, len(df)):
             row = df.iloc[i]
             equity_curve.append(capital)
@@ -42,14 +43,18 @@ class V4Backtester:
             if capital < 10:
                 break
                 
+            # 記錄流動性掠奪
+            if row['sweep_low']: last_sweep_low_idx = i
+            if row['sweep_high']: last_sweep_high_idx = i
+                
             # ==========================================
-            # 1. 倉位管理 (平倉邏輯)
+            # 1. 倉位管理
             # ==========================================
             if position > 0:
                 current_profit_dist = row['high'] - entry_price
                 current_r = current_profit_dist / sl_distance if sl_distance > 0 else 0
                 
-                # 保本推移：當利潤達到設定的 R 倍數時，無風險保本
+                # 提早保本：只要跑到 1R，就把止損設為成本價+手續費，保證不虧
                 if current_r >= self.config.breakeven_r and current_sl_price < entry_price * (1 + total_fee_rate * 2):
                     current_sl_price = entry_price * (1 + total_fee_rate * 2)
                 
@@ -97,27 +102,70 @@ class V4Backtester:
                     trades.append({'type': 'tp_short', 'pnl_usd': pnl_usd, 'return': pnl_pct})
             
             # ==========================================
-            # 2. 進場邏輯 (SMC FVG Retracement)
+            # 2. FVG 狀態管理
+            # ==========================================
+            if active_bull_fvg:
+                active_bull_fvg['age'] += 1
+                if row['close'] < active_bull_fvg['bottom'] or active_bull_fvg['age'] > self.config.fvg_max_age:
+                    active_bull_fvg = None
+                    
+            if active_bear_fvg:
+                active_bear_fvg['age'] += 1
+                if row['close'] > active_bear_fvg['top'] or active_bear_fvg['age'] > self.config.fvg_max_age:
+                    active_bear_fvg = None
+            
+            # 偵測新的 FVG (加上流動性過濾)
+            if row['fvg_bull']:
+                # 如果要求 Sweep，則 FVG 發生前 5 根 K 線內必須要有 Sweep Low
+                valid = True
+                if self.config.require_sweep and (i - last_sweep_low_idx) > 5:
+                    valid = False
+                    
+                if valid:
+                    # 止損設在最近的波段低點
+                    sl = df['swing_low'].iloc[i] - row['atr'] * 0.1
+                    active_bull_fvg = {
+                        'top': row['fvg_bull_top'],
+                        'bottom': row['fvg_bull_bottom'],
+                        'sl': sl,
+                        'age': 0
+                    }
+                
+            if row['fvg_bear']:
+                valid = True
+                if self.config.require_sweep and (i - last_sweep_high_idx) > 5:
+                    valid = False
+                    
+                if valid:
+                    sl = df['swing_high'].iloc[i] + row['atr'] * 0.1
+                    active_bear_fvg = {
+                        'top': row['fvg_bear_top'],
+                        'bottom': row['fvg_bear_bottom'],
+                        'sl': sl,
+                        'age': 0
+                    }
+            
+            # ==========================================
+            # 3. 進場邏輯 (SMC FVG Retracement)
             # ==========================================
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars:
                 
-                # 判斷多頭進場：價格回踩到 Bullish FVG 內部
+                # 多頭進場：價格回踩到 Bullish FVG 內部 且 大趨勢看漲
                 if active_bull_fvg and row['low'] <= active_bull_fvg['top'] and row['close'] > row['ema_trend']:
-                    # 模擬限價單成交 (Limit Order at FVG Top)
                     entry_price = min(row['open'], active_bull_fvg['top'])
                     sl_price = active_bull_fvg['sl']
                     
                     sl_dist = entry_price - sl_price
                     sl_pct = sl_dist / entry_price
-                    if sl_pct < 0.001: sl_pct = 0.001 # 最小止損距離 0.1%
+                    
+                    # 防止止損距離過小導致倉位爆掉
+                    if sl_pct < 0.003: sl_pct = 0.003 
                     
                     max_loss_usd = capital * self.config.risk_per_trade
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
                     position_size_usd = min(target_position_size, capital * self.config.max_leverage)
                     
-                    # 檢查是否在同一根 K 線內直接打到止損 (防止回測作弊)
                     if row['low'] <= sl_price:
-                        # 瞬間止損
                         pnl_usd = -max_loss_usd
                         capital += pnl_usd
                         trades.append({'type': 'sl_long_instant', 'pnl_usd': pnl_usd, 'return': -sl_pct})
@@ -128,16 +176,17 @@ class V4Backtester:
                         sl_distance = sl_dist
                         current_tp_price = entry_price + sl_dist * self.config.risk_reward_ratio
                     
-                    active_bull_fvg = None # FVG 被使用過後失效
+                    active_bull_fvg = None
                     
-                # 判斷空頭進場：價格反彈到 Bearish FVG 內部
+                # 空頭進場
                 elif active_bear_fvg and row['high'] >= active_bear_fvg['bottom'] and row['close'] < row['ema_trend']:
                     entry_price = max(row['open'], active_bear_fvg['bottom'])
                     sl_price = active_bear_fvg['sl']
                     
                     sl_dist = sl_price - entry_price
                     sl_pct = sl_dist / entry_price
-                    if sl_pct < 0.001: sl_pct = 0.001
+                    
+                    if sl_pct < 0.003: sl_pct = 0.003
                     
                     max_loss_usd = capital * self.config.risk_per_trade
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
@@ -155,44 +204,8 @@ class V4Backtester:
                         current_tp_price = entry_price - sl_dist * self.config.risk_reward_ratio
                         
                     active_bear_fvg = None
-
-            # ==========================================
-            # 3. ICT 狀態更新 (偵測新的 FVG)
-            # ==========================================
-            # FVG 老化或失效
-            if active_bull_fvg:
-                active_bull_fvg['age'] += 1
-                # 如果價格收盤跌破 FVG 底部，代表該 FVG 被破壞 (Mitigated)
-                if row['close'] < active_bull_fvg['bottom'] or active_bull_fvg['age'] > self.config.fvg_max_age:
-                    active_bull_fvg = None
                     
-            if active_bear_fvg:
-                active_bear_fvg['age'] += 1
-                if row['close'] > active_bear_fvg['top'] or active_bear_fvg['age'] > self.config.fvg_max_age:
-                    active_bear_fvg = None
-            
-            # 偵測這根 K 線確認的新 FVG
-            if row['fvg_bull']:
-                # SMC 結構止損：設置在創造該 FVG 的這波起漲點 (過去3根K線的最低點)
-                sl = min(df['low'].iloc[i], df['low'].iloc[i-1], df['low'].iloc[i-2]) - row['atr'] * 0.2
-                active_bull_fvg = {
-                    'top': row['fvg_bull_top'],
-                    'bottom': row['fvg_bull_bottom'],
-                    'sl': sl,
-                    'age': 0
-                }
-                
-            if row['fvg_bear']:
-                # 結構止損：這波起跌點的最高點
-                sl = max(df['high'].iloc[i], df['high'].iloc[i-1], df['high'].iloc[i-2]) + row['atr'] * 0.2
-                active_bear_fvg = {
-                    'top': row['fvg_bear_top'],
-                    'bottom': row['fvg_bear_bottom'],
-                    'sl': sl,
-                    'age': 0
-                }
-                    
-        # === 統計與返回 ===
+        # === 統計 ===
         wins = len([t for t in trades if t['pnl_usd'] > 0])
         total = len(trades)
         win_rate = wins / total if total > 0 else 0
