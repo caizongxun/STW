@@ -15,7 +15,7 @@ def render():
     - 🔄 **雙時間框架**：15m 尋找反轉 + 1h 確認趨勢
     - 🎯 **反轉形態量化**：RSI 背離、Pin Bar、Z-Score 超賣
     - 🛡️ **動態止損**：基於 ATR 自適應 + 移動止盈
-    - 📈 **高勝率過濾**：只在模型信心度 >80% 時進場
+    - 📈 **高勝率過濾**：只在模型信心度 >65% 時進場
     
     **適用場景**：
     - 捕捉大波動中的短期反轉機會
@@ -60,27 +60,27 @@ def render():
         
         lstm_confidence = st.slider(
             "LSTM 信心度閾值 (%)",
-            60, 95, 80, 5,
-            help="只有當模型預測信心度高於此值才進場"
+            50, 90, 65, 5,
+            help="只有當模型預測信心度高於此值才進場。降低可增加交易機會。"
         ) / 100.0
         
         st.markdown("### 策略參數")
         enable_dual_timeframe = st.checkbox(
             "✅ 啟用雙時間框架確認",
             value=True,
-            help="同時檢查 15m 和 1h，提高勝率"
+            help="同時檢查 15m 和 1h，提高勝率但減少交易機會"
         )
         
         enable_pattern_filter = st.checkbox(
             "✅ 啟用反轉形態過濾",
-            value=True,
-            help="檢測 RSI 背離、Pin Bar 等形態"
+            value=False,
+            help="檢測 RSI 背離、Pin Bar 等形態。可能過度限制交易。"
         )
         
         st.markdown("### 風險管理")
-        base_risk = st.slider("基礎風險 (%)", 1.0, 5.0, 2.0, 0.5) / 100.0
+        base_risk = st.slider("基礎風險 (%)", 1.0, 5.0, 2.5, 0.5) / 100.0
         max_leverage = st.slider("最大槓桿", 1, 5, 3, 1)
-        atr_multiplier = st.slider("止損 ATR 倍數", 1.0, 3.0, 1.5, 0.5)
+        atr_multiplier = st.slider("止損 ATR 倍數", 0.5, 3.0, 1.2, 0.1)
         tp_ratio = st.slider("止盈倍數 (R)", 1.5, 4.0, 2.5, 0.5)
         
         test_btn = st.button("🚀 開始 V8 回測", type="primary", use_container_width=True)
@@ -160,14 +160,54 @@ def render():
                     col_d2.metric("測試準確率", f"{bt_results.get('lstm_test_acc', 0):.1f}%")
                     col_d3.metric("實際勝率提升", f"+{bt_results.get('winrate_improvement', 0):.1f}%")
                     
+                    # 顯示過濾統計
+                    if 'filter_stats' in bt_results:
+                        st.markdown("---")
+                        st.markdown("### 🔍 過濾器統計（為何沒交易？）")
+                        stats = bt_results['filter_stats']
+                        
+                        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                        col_e1.metric("LSTM 信號數", stats.get('lstm_signals', 0))
+                        col_e2.metric("通過信心度", stats.get('pass_confidence', 0))
+                        col_e3.metric("通過趨勢", stats.get('pass_trend', 0))
+                        col_e4.metric("最終交易", stats.get('final_trades', 0))
+                        
+                        st.info(f"""
+                        **過濾漏斗分析**：
+                        - LSTM 產生了 {stats.get('lstm_signals', 0)} 個看漲信號
+                        - 其中 {stats.get('pass_confidence', 0)} 個通過信心度 ≥ {lstm_confidence*100:.0f}%
+                        - 其中 {stats.get('pass_trend', 0)} 個通過趨勢確認
+                        - 最終執行了 {stats.get('final_trades', 0)} 筆交易
+                        
+                        **建議**：
+                        {'- 降低 LSTM 信心度到 60%' if stats.get('pass_confidence', 0) < 10 else ''}
+                        {'- 關閉雙時間框架確認' if stats.get('pass_trend', 0) < 5 else ''}
+                        {'- 關閉反轉形態過濾' if enable_pattern_filter and stats.get('final_trades', 0) == 0 else ''}
+                        """)
+                    
                     # 結果評估
-                    if monthly_return >= 20 and bt_results['win_rate'] >= 60:
+                    if bt_results['total_trades'] == 0:
+                        st.error("""
+                        ❌ **沒有產生任何交易！**
+                        
+                        **可能原因**：
+                        1. LSTM 信心度閾值太高（當前 {:.0f}%）→ 降低到 60%
+                        2. 雙時間框架過濾太嚴格 → 嘗試關閉
+                        3. 反轉形態過濾太嚴格 → 嘗試關閉
+                        4. 回測期間市場持續單邊，沒有反轉機會
+                        
+                        **立即行動**：
+                        - 將「LSTM 信心度閾值」降到 **60%**
+                        - 取消勾選「啟用反轉形態過濾」
+                        - 重新回測
+                        """.format(lstm_confidence * 100))
+                    elif monthly_return >= 20 and bt_results['win_rate'] >= 60:
                         st.success(f"🎉 **優秀表現！** 月化 {monthly_return:.1f}%，勝率 {bt_results['win_rate']:.1f}%")
                         if bt_results['max_drawdown'] < 15:
                             st.success("✅ 回撤控制良好，可以考慮實盤。")
                             st.balloons()
                     elif monthly_return >= 10:
-                        st.info(f"📊 月化報酬 {monthly_return:.1f}%，表現尚可。建議：\n- 降低 LSTM 信心度閾值到 75%\n- 啟用雙時間框架確認")
+                        st.info(f"📊 月化報酬 {monthly_return:.1f}%，表現尚可。建議：\n- 降低 LSTM 信心度閾值到 60%\n- 測試不同的幣種")
                     else:
                         st.warning(f"⚠️ 月化報酬 {monthly_return:.1f}% 未達預期。可能原因：\n- 訓練數據不足\n- 市場特性變化\n- 過濾條件過於嚴格")
                     
