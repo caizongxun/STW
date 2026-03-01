@@ -86,7 +86,7 @@ def render():
                 )
                 
                 loader = DataLoader()
-                df = loader.load_data(symbol, '8h')  # 資金費率每 8 小時結算一次
+                df = loader.load_data(symbol, '1h')  # 使用 1 小時數據，每 8 根 K 線模擬一次資金費率結算
                 
                 if df is not None and not df.empty:
                     bt = V6Backtester(config)
