@@ -3,21 +3,19 @@ import numpy as np
 from datetime import timedelta
 
 class V5Backtester:
-    """V5 配對交易回測引擎"""
+    """V5 配對交易回測引擎 (優化版)"""
     
     def __init__(self, config):
         self.config = config
         
     def run(self, df_long, df_short, fe):
-        print("[V5] Running Pairs Trading Strategy (Statistical Arbitrage)...")
+        print("[V5] Running Optimized Pairs Trading Strategy...")
         
-        # 生成價差特徵
         df = fe.generate(df_long, df_short)
         
         if 'open_time' in df.columns:
             df['open_time'] = pd.to_datetime(df['open_time'])
         
-        # 裁切回測區間
         if self.config.simulation_days > 0 and 'open_time' in df.columns:
             end_time = df['open_time'].max()
             start_time = end_time - timedelta(days=self.config.simulation_days)
@@ -25,7 +23,7 @@ class V5Backtester:
             print(f"[V5] 回測區間: {start_time.date()} 至 {end_time.date()}")
         
         capital = self.config.capital
-        positions = []  # 當前持倉列表
+        positions = []
         trades = []
         equity_curve = []
         
@@ -48,6 +46,7 @@ class V5Backtester:
             positions_to_close = []
             for pos in positions:
                 current_zscore = row['zscore']
+                holding_bars = i - pos['entry_idx']
                 
                 # 出場條件 1：Z-Score 回歸到出場閾值
                 if abs(current_zscore) < self.config.exit_zscore:
@@ -58,24 +57,24 @@ class V5Backtester:
                     if (pos['direction'] == 'long_spread' and current_zscore > 0) or \
                        (pos['direction'] == 'short_spread' and current_zscore < 0):
                         positions_to_close.append(pos)
+                
+                # 出場條件 3：持倉過久，強制平倉
+                elif holding_bars > self.config.max_holding_bars:
+                    positions_to_close.append(pos)
             
-            # 平倉操作
             for pos in positions_to_close:
                 exit_price_long = row['price_long']
                 exit_price_short = row['price_short']
                 
                 if pos['direction'] == 'long_spread':
-                    # 做多價差 = 做多 long 幣種，做空 short 幣種
                     pnl_long = (exit_price_long - pos['entry_price_long']) / pos['entry_price_long']
                     pnl_short = (pos['entry_price_short'] - exit_price_short) / pos['entry_price_short']
                 else:
-                    # 做空價差 = 做空 long 幣種，做多 short 幣種
                     pnl_long = (pos['entry_price_long'] - exit_price_long) / pos['entry_price_long']
                     pnl_short = (exit_price_short - pos['entry_price_short']) / pos['entry_price_short']
                 
-                # 計算總盈虧（兩邊倉位的平均）
                 avg_pnl = (pnl_long + pnl_short) / 2
-                pnl_usd = pos['position_size'] * avg_pnl - (pos['position_size'] * total_fee_rate * 4)  # 4 次手續費（開2平2）
+                pnl_usd = pos['position_size'] * avg_pnl - (pos['position_size'] * total_fee_rate * 4)
                 
                 capital += pnl_usd
                 positions.remove(pos)
@@ -94,21 +93,30 @@ class V5Backtester:
             # ==========================================
             if len(positions) < self.config.max_positions and (i - last_exit_idx) >= self.config.cooldown_bars:
                 current_zscore = row['zscore']
+                zscore_change = row.get('zscore_change', 0)
                 
-                # 開倉條件：Z-Score 偏離超過進場閾值
+                direction = None
+                
+                # 加入動量確認：只有當 Z-Score 開始向均值回歸時才開倉
                 if current_zscore > self.config.entry_zscore:
-                    # Z-Score 過高 → 價差過大 → 做空價差（做空 long，做多 short）
-                    direction = 'short_spread'
+                    # Z-Score 過高，且開始下降（回歸）
+                    if self.config.use_momentum_filter:
+                        if zscore_change < 0:  # Z-Score 正在下降
+                            direction = 'short_spread'
+                    else:
+                        direction = 'short_spread'
+                        
                 elif current_zscore < -self.config.entry_zscore:
-                    # Z-Score 過低 → 價差過小 → 做多價差（做多 long，做空 short）
-                    direction = 'long_spread'
-                else:
-                    direction = None
+                    # Z-Score 過低，且開始上升（回歸）
+                    if self.config.use_momentum_filter:
+                        if zscore_change > 0:  # Z-Score 正在上升
+                            direction = 'long_spread'
+                    else:
+                        direction = 'long_spread'
                 
                 if direction:
-                    # 計算倉位大小（基於 2% 風險）
                     max_loss_usd = capital * self.config.risk_per_trade
-                    position_size = min(max_loss_usd / 0.05, capital * self.config.max_leverage)  # 假設最大虧損 5%
+                    position_size = min(max_loss_usd / 0.05, capital * self.config.max_leverage)
                     
                     positions.append({
                         'direction': direction,
@@ -119,9 +127,7 @@ class V5Backtester:
                         'position_size': position_size
                     })
         
-        # ==========================================
-        # 3. 計算統計指標
-        # ==========================================
+        # 計算統計
         wins = len([t for t in trades if t['pnl_usd'] > 0])
         total = len(trades)
         win_rate = wins / total if total > 0 else 0
@@ -140,7 +146,7 @@ class V5Backtester:
             avg_holding_bars = np.mean([t['holding_bars'] for t in trades if 'holding_bars' in t])
             avg_holding_hours = avg_holding_bars / bars_per_hour
         
-        avg_leverage = self.config.max_leverage * 0.5  # 簡化估算
+        avg_leverage = self.config.max_leverage * 0.5
         
         return {
             'final_capital': capital,
