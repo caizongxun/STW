@@ -29,19 +29,22 @@ class V4Backtester:
             row = df.iloc[i]
             equity_curve.append(capital)
             
+            # 破產保護
+            if capital < 10:  # 如果資金小於10U，停止交易
+                break
+            
             # === 平倉邏輯 ===
             if position > 0:
-                # 追蹤保本機制
                 current_profit_pct = (row['high'] - entry_price) / entry_price
                 dynamic_sl = entry_price - row['atr'] * self.config.atr_sl_multiplier
                 
-                # 如果利潤超過 1.5 ATR，無風險保本 (移到成本價+手續費)
                 if current_profit_pct > (row['atr'] * 1.5 / entry_price):
                     dynamic_sl = max(dynamic_sl, entry_price * (1 + total_fee_rate * 2))
                 
                 if row['low'] < dynamic_sl:
                     exit_price = dynamic_sl
                     pnl_pct = (exit_price - entry_price) / entry_price
+                    # 修復盈虧計算：總獲利 = 倉位價值 * 漲跌幅 - (倉位價值 * 雙邊手續費)
                     pnl_usd = position_size_usd * pnl_pct - (position_size_usd * total_fee_rate * 2)
                     capital += pnl_usd
                     position = 0
@@ -100,13 +103,10 @@ class V4Backtester:
                     last_exit_idx = i
                     trades.append({'type': 'time_short', 'pnl_usd': pnl_usd, 'capital': capital, 'return': pnl_pct})
                     
-            # === 開倉邏輯 (純指標) ===
+            # === 開倉邏輯 ===
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars:
                 
                 # 做多條件：
-                # 1. 大趨勢為多頭 (EMA50 > EMA200)
-                # 2. 發生回調 (RSI 偏低 或 剛好踩到 EMA50)
-                # 3. 價格行為確認 (收下影線)
                 long_cond = row['uptrend'] and (row['rsi'] < self.config.rsi_oversold or row['pullback_buy'])
                 if self.config.use_price_action:
                     long_cond = long_cond and row['reject_lower']
@@ -117,13 +117,23 @@ class V4Backtester:
                     short_cond = short_cond and row['reject_higher']
                 
                 if long_cond or short_cond:
-                    # 固定風險倉位管理
+                    # 修復倉位計算邏輯：確保風險控制在正常範圍
                     sl_distance_price = row['atr'] * self.config.atr_sl_multiplier
+                    
+                    # 避免 atr 為 0 或極小導致除以零
+                    if sl_distance_price < row['close'] * 0.0001:
+                        sl_distance_price = row['close'] * 0.001
+                        
                     sl_pct = sl_distance_price / row['close']
                     
+                    # 預期虧損金額 (例如 10000 * 3% = 300)
                     max_loss_usd = capital * self.config.risk_per_trade
+                    
+                    # 倉位價值 = 預期虧損 / (止損跌幅 + 手續費)
+                    # 例如：300 / (0.5% + 0.12%) = 約 48,000 U 的倉位
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
                     
+                    # 防呆機制：最大不超過本金的 N 倍槓桿
                     max_allowed_position = capital * self.config.max_leverage
                     position_size_usd = min(target_position_size, max_allowed_position)
                     
@@ -142,9 +152,8 @@ class V4Backtester:
             if days_diff > 0:
                 monthly_return = total_return / (days_diff / 30.0)
                 
-        # 分析交易品質
-        avg_win = np.mean([t['return'] for t in trades if t['return'] > 0]) if wins > 0 else 0
-        avg_loss = np.mean([t['return'] for t in trades if t['return'] < 0]) if total > wins else 0
+        avg_win = np.mean([t['return'] for t in trades if t['pnl_usd'] > 0]) if wins > 0 else 0
+        avg_loss = np.mean([t['return'] for t in trades if t['pnl_usd'] < 0]) if total > wins else 0
         
         return {
             'final_capital': capital,
