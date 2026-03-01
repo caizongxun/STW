@@ -6,7 +6,7 @@ class V4Backtester:
         self.config = config
         
     def run(self, df, fe):
-        print("[V4] Running Pure Indicator SMC Strategy...")
+        print("[V4] Running Strict Pullback Strategy...")
         
         df = fe.generate(df)
         
@@ -29,8 +29,7 @@ class V4Backtester:
             row = df.iloc[i]
             equity_curve.append(capital)
             
-            # 破產保護
-            if capital < 10:  # 如果資金小於10U，停止交易
+            if capital < 10:
                 break
             
             # === 平倉邏輯 ===
@@ -38,13 +37,13 @@ class V4Backtester:
                 current_profit_pct = (row['high'] - entry_price) / entry_price
                 dynamic_sl = entry_price - row['atr'] * self.config.atr_sl_multiplier
                 
-                if current_profit_pct > (row['atr'] * 1.5 / entry_price):
+                # 保本機制：獲利超過 1 倍 ATR 就保本 (縮小被雙巴的機會)
+                if current_profit_pct > (row['atr'] * 1.0 / entry_price):
                     dynamic_sl = max(dynamic_sl, entry_price * (1 + total_fee_rate * 2))
                 
                 if row['low'] < dynamic_sl:
                     exit_price = dynamic_sl
                     pnl_pct = (exit_price - entry_price) / entry_price
-                    # 修復盈虧計算：總獲利 = 倉位價值 * 漲跌幅 - (倉位價值 * 雙邊手續費)
                     pnl_usd = position_size_usd * pnl_pct - (position_size_usd * total_fee_rate * 2)
                     capital += pnl_usd
                     position = 0
@@ -73,7 +72,7 @@ class V4Backtester:
                 current_profit_pct = (entry_price - row['low']) / entry_price
                 dynamic_sl = entry_price + row['atr'] * self.config.atr_sl_multiplier
                 
-                if current_profit_pct > (row['atr'] * 1.5 / entry_price):
+                if current_profit_pct > (row['atr'] * 1.0 / entry_price):
                     dynamic_sl = min(dynamic_sl, entry_price * (1 - total_fee_rate * 2))
                     
                 if row['high'] > dynamic_sl:
@@ -103,37 +102,36 @@ class V4Backtester:
                     last_exit_idx = i
                     trades.append({'type': 'time_short', 'pnl_usd': pnl_usd, 'capital': capital, 'return': pnl_pct})
                     
-            # === 開倉邏輯 ===
+            # === 嚴格開倉邏輯 (狙擊手模式) ===
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars:
                 
-                # 做多條件：
-                long_cond = row['uptrend'] and (row['rsi'] < self.config.rsi_oversold or row['pullback_buy'])
+                # 做多：強多頭 + 價格精準回踩均線 + 強力長下影線拒絕
+                long_cond = (
+                    row['strict_uptrend'] and 
+                    row['near_fast_ema'] and 
+                    (row['rsi'] < self.config.rsi_oversold or row['strong_reject_lower'])
+                )
                 if self.config.use_price_action:
-                    long_cond = long_cond and row['reject_lower']
+                    long_cond = long_cond and row['strong_reject_lower']
                     
-                # 做空條件：
-                short_cond = row['downtrend'] and (row['rsi'] > self.config.rsi_overbought or row['pullback_sell'])
+                # 做空：強空頭 + 價格反抽均線 + 強力長上影線拒絕
+                short_cond = (
+                    row['strict_downtrend'] and 
+                    row['near_fast_ema'] and 
+                    (row['rsi'] > self.config.rsi_overbought or row['strong_reject_higher'])
+                )
                 if self.config.use_price_action:
-                    short_cond = short_cond and row['reject_higher']
+                    short_cond = short_cond and row['strong_reject_higher']
                 
                 if long_cond or short_cond:
-                    # 修復倉位計算邏輯：確保風險控制在正常範圍
                     sl_distance_price = row['atr'] * self.config.atr_sl_multiplier
-                    
-                    # 避免 atr 為 0 或極小導致除以零
-                    if sl_distance_price < row['close'] * 0.0001:
+                    if sl_distance_price < row['close'] * 0.001:
                         sl_distance_price = row['close'] * 0.001
                         
                     sl_pct = sl_distance_price / row['close']
                     
-                    # 預期虧損金額 (例如 10000 * 3% = 300)
                     max_loss_usd = capital * self.config.risk_per_trade
-                    
-                    # 倉位價值 = 預期虧損 / (止損跌幅 + 手續費)
-                    # 例如：300 / (0.5% + 0.12%) = 約 48,000 U 的倉位
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
-                    
-                    # 防呆機制：最大不超過本金的 N 倍槓桿
                     max_allowed_position = capital * self.config.max_leverage
                     position_size_usd = min(target_position_size, max_allowed_position)
                     
