@@ -10,15 +10,14 @@ class V4Backtester:
         
         df = fe.generate(df)
         
-        # 確保 open_time 為 datetime 格式以便處理時間
         if 'open_time' in df.columns:
             df['open_time'] = pd.to_datetime(df['open_time'])
             df['hour'] = df['open_time'].dt.hour
         else:
-            df['hour'] = 12 # fallback
+            df['hour'] = 12 
             
         capital = self.config.capital
-        peak_capital = capital # 用於 High-Water Mark 提款/複利邏輯
+        peak_capital = capital 
         
         position = 0
         entry_price = 0
@@ -35,6 +34,7 @@ class V4Backtester:
         
         trades = []
         equity_curve = []
+        leverage_used = [] # 記錄每次開倉的實際槓桿
         
         start_time = df['open_time'].iloc[0] if 'open_time' in df.columns else None
         end_time = df['open_time'].iloc[-1] if 'open_time' in df.columns else None
@@ -51,15 +51,12 @@ class V4Backtester:
             if capital > peak_capital:
                 peak_capital = capital
                 
-            if capital < self.config.capital * 0.1: # 虧損超過 90% 停損
+            if capital < self.config.capital * 0.1: 
                 break
                 
             if row['sweep_low']: last_sweep_low_idx = i
             if row['sweep_high']: last_sweep_high_idx = i
             
-            # 判斷是否在活躍交易時間 (倫敦尾盤/紐約早盤/亞洲波動區)
-            # 大約是 UTC 12:00-20:00 (紐約) 和 00:00-04:00 (亞洲早盤) 和 07:00-11:00 (倫敦)
-            # 簡單排除最死水的 UTC 21:00-23:00 和 04:00-06:00
             is_active_session = True
             if self.config.use_killzones:
                 h = row['hour']
@@ -153,7 +150,6 @@ class V4Backtester:
             # ==========================================
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars and is_active_session:
                 
-                # 計算用來開倉的基準資金 (複利 vs 單利)
                 trading_capital = capital if self.config.use_compounding else self.config.capital
                 
                 if active_bull_fvg and row['low'] <= active_bull_fvg['top'] and row['close'] > row['ema_trend']:
@@ -166,6 +162,9 @@ class V4Backtester:
                     max_loss_usd = trading_capital * self.config.risk_per_trade
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
                     position_size_usd = min(target_position_size, trading_capital * self.config.max_leverage)
+                    
+                    actual_leverage = position_size_usd / trading_capital
+                    leverage_used.append(actual_leverage)
                     
                     if row['low'] <= sl_price:
                         pnl_usd = -max_loss_usd
@@ -191,6 +190,9 @@ class V4Backtester:
                     target_position_size = max_loss_usd / (sl_pct + total_fee_rate * 2)
                     position_size_usd = min(target_position_size, trading_capital * self.config.max_leverage)
                     
+                    actual_leverage = position_size_usd / trading_capital
+                    leverage_used.append(actual_leverage)
+                    
                     if row['high'] >= sl_price:
                         pnl_usd = -max_loss_usd
                         capital += pnl_usd
@@ -210,15 +212,16 @@ class V4Backtester:
         total_return = (capital - self.config.capital) / self.config.capital * 100
         
         monthly_return = 0
+        days_diff = 0
         if start_time is not None and end_time is not None:
             days_diff = (end_time - start_time).days
             if days_diff > 0:
-                # 嚴格的月化報酬公式： (總報酬+1) ^ (30/總天數) - 1
-                compound_monthly = ((capital / self.config.capital) ** (30.0 / days_diff) - 1) * 100
-                monthly_return = compound_monthly
+                # 簡單平均月化 (非複利計算，因為複利計算在總回報極高時會讓月化看起來很小)
+                monthly_return = total_return / (days_diff / 30.0)
                 
         avg_win = np.mean([t['return'] for t in trades if t['pnl_usd'] > 0]) if wins > 0 else 0
         avg_loss = np.mean([t['return'] for t in trades if t['pnl_usd'] < 0]) if total > wins else 0
+        avg_lev = np.mean(leverage_used) if leverage_used else 0
         
         return {
             'final_capital': capital,
@@ -229,7 +232,8 @@ class V4Backtester:
             'max_drawdown': self.calculate_max_drawdown(equity_curve),
             'avg_win_pct': avg_win * 100,
             'avg_loss_pct': avg_loss * 100,
-            'days_tested': days_diff if 'days_diff' in locals() else 0
+            'days_tested': days_diff,
+            'avg_leverage': avg_lev
         }
         
     def calculate_max_drawdown(self, equity_curve):
