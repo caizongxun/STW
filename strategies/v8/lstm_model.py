@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_class_weight
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -9,7 +10,7 @@ try:
     from tensorflow import keras
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-    from tensorflow.keras.callbacks import EarlyStopping
+    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
     TF_AVAILABLE = True
 except ImportError:
     TF_AVAILABLE = False
@@ -34,16 +35,16 @@ class V8LSTMModel:
         0 = 不滿足
         """
         forward = self.config.lstm_forecast_bars
-        threshold = self.config.reversal_threshold
+        # 放寬漲幅要求以增加正樣本比例（解決極度不平衡問題）
+        # 如果原始閾值是 1.5%，這裡先用 0.8% 建立模型
+        threshold = min(self.config.reversal_threshold, 0.008) 
         
-        # 計算未來最高價與最低價
         future_high = df['high'].shift(-forward).rolling(forward, min_periods=1).max()
         future_low = df['low'].shift(-forward).rolling(forward, min_periods=1).min()
         
         max_gain = (future_high - df['close']) / df['close']
         max_loss = (df['close'] - future_low) / df['close']
         
-        # ATR 止損
         atr_stop_pct = self.config.reversal_stop_mult * df['atr'] / df['close']
         
         # 標籤：漲幅 > threshold 且沒有先跌破止損
@@ -55,19 +56,19 @@ class V8LSTMModel:
         """準備 LSTM 輸入序列"""
         lookback = self.config.lstm_lookback
         
-        # 創建標籤
         labels = self.create_labels(df)
         df['label'] = labels
         
-        # 只使用有效數據（去除未來無法計算標籤的部分）
         valid_end = len(df) - self.config.lstm_forecast_bars
         df = df.iloc[:valid_end].copy()
         
-        # 標準化特徵
         features_scaled = self.scaler.fit_transform(df[feature_cols])
         
         X, y = [], []
-        for i in range(lookback, len(df)):
+        # 使用步長（stride）為 2 來減少重疊樣本，加快訓練並減少記憶體消耗
+        stride = 2 if len(df) > 100000 else 1
+        
+        for i in range(lookback, len(df), stride):
             X.append(features_scaled[i-lookback:i])
             y.append(df['label'].iloc[i])
         
@@ -83,16 +84,38 @@ class V8LSTMModel:
         
         X, y = self.prepare_sequences(df, self.feature_cols)
         
-        print(f"[V8 LSTM] 總樣本數: {len(X)}, 正樣本比例: {y.mean()*100:.1f}%")
+        pos_ratio = y.mean() * 100
+        print(f"[V8 LSTM] 總樣本數: {len(X)}, 正樣本比例: {pos_ratio:.1f}%")
         
-        # 按時間劃分
+        if pos_ratio < 1.0:
+            print("[V8 LSTM] 警告：正樣本極度缺乏，模型可能無法學習")
+            
         split_idx = int(len(X) * self.config.train_size_pct)
         X_train, X_test = X[:split_idx], X[split_idx:]
         y_train, y_test = y[:split_idx], y[split_idx:]
         
         if TF_AVAILABLE:
-            # 真正的 LSTM 模型
             print("[V8 LSTM] 使用 TensorFlow 訓練模型...")
+            
+            # 計算類別權重，解決樣本不平衡問題 (極度重要！)
+            try:
+                classes = np.unique(y_train)
+                weights = compute_class_weight(class_weight='balanced', classes=classes, y=y_train)
+                class_weights = dict(zip(classes, weights))
+                print(f"[V8 LSTM] 類別權重: 負樣本(0)={class_weights[0]:.2f}, 正樣本(1)={class_weights[1]:.2f}")
+            except Exception as e:
+                print(f"[V8 LSTM] 類別權重計算失敗，使用預設值: {e}")
+                # 如果計算失敗，手動設定權重（基於通常 95%負/5%正 的分佈）
+                weight_1 = (1 / pos_ratio) * 100 if pos_ratio > 0 else 20.0
+                class_weights = {0: 1.0, 1: weight_1}
+                print(f"[V8 LSTM] 備用類別權重: 0=1.0, 1={weight_1:.2f}")
+
+            # 自定義 Metrics 追蹤 Precision 和 Recall
+            metrics = [
+                'accuracy',
+                keras.metrics.Precision(name='precision'),
+                keras.metrics.Recall(name='recall')
+            ]
             
             self.model = Sequential([
                 LSTM(64, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),
@@ -105,34 +128,59 @@ class V8LSTMModel:
                 Dense(1, activation='sigmoid')
             ])
             
+            # 降低學習率以獲得更穩定的訓練
+            optimizer = keras.optimizers.Adam(learning_rate=0.001)
+            
             self.model.compile(
-                optimizer='adam',
+                optimizer=optimizer,
                 loss='binary_crossentropy',
-                metrics=['accuracy']
+                metrics=metrics
             )
             
-            early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+            early_stop = EarlyStopping(
+                monitor='val_loss', 
+                patience=6, 
+                restore_best_weights=True,
+                verbose=1
+            )
+            
+            reduce_lr = ReduceLROnPlateau(
+                monitor='val_loss', 
+                factor=0.5, 
+                patience=3, 
+                min_lr=0.0001,
+                verbose=1
+            )
+            
+            # 減少 epochs 加快訓練，因為加入了 EarlyStopping
+            epochs = min(self.config.lstm_epochs, 30)
             
             history = self.model.fit(
                 X_train, y_train,
-                epochs=self.config.lstm_epochs,
-                batch_size=self.config.lstm_batch_size,
+                epochs=epochs,
+                batch_size=self.config.lstm_batch_size * 2,  # 加大 batch_size 提速
                 validation_split=0.2,
-                callbacks=[early_stop],
-                verbose=0
+                class_weight=class_weights,  # 應用類別權重！
+                callbacks=[early_stop, reduce_lr],
+                verbose=1  # 顯示進度以確保模型真的在學
             )
             
             # 評估
-            train_loss, train_acc = self.model.evaluate(X_train, y_train, verbose=0)
-            test_loss, test_acc = self.model.evaluate(X_test, y_test, verbose=0)
+            eval_results = self.model.evaluate(X_test, y_test, verbose=0)
+            test_loss = eval_results[0]
+            test_acc = eval_results[1]
+            test_precision = eval_results[2] if len(eval_results) > 2 else 0
+            test_recall = eval_results[3] if len(eval_results) > 3 else 0
             
-            self.train_accuracy = train_acc * 100
+            self.train_accuracy = history.history['accuracy'][-1] * 100
             self.test_accuracy = test_acc * 100
             
-            print(f"[V8 LSTM] 訓練完成 - 訓練準確率: {train_acc*100:.2f}%, 測試準確率: {test_acc*100:.2f}%")
+            print(f"[V8 LSTM] 訓練完成:")
+            print(f"  - 測試準確率: {test_acc*100:.2f}%")
+            print(f"  - 測試精確率(Precision): {test_precision*100:.2f}% (模型說是1時，真的是1的機率)")
+            print(f"  - 測試召回率(Recall): {test_recall*100:.2f}% (真的有1時，模型抓到多少)")
             
         else:
-            # 簡化模擬（無 TensorFlow 時）
             print("[V8 LSTM] 使用簡化模擬模式...")
             self.train_accuracy = 65.0
             self.test_accuracy = 62.0
@@ -146,53 +194,19 @@ class V8LSTMModel:
         }
     
     def predict(self, df, current_idx):
-        """
-        預測單個時間點
-        返回: (方向, 信心度)
-        """
         if not self.is_trained or current_idx < self.config.lstm_lookback:
             return 0, 0.5
         
         lookback = self.config.lstm_lookback
         
-        # 提取特徵
         features = df[self.feature_cols].iloc[current_idx-lookback:current_idx].values
-        
-        # 標準化
         features_scaled = self.scaler.transform(features)
         features_scaled = features_scaled.reshape(1, lookback, -1)
         
         if TF_AVAILABLE and self.model is not None:
-            # 真正的 LSTM 預測
             confidence = self.model.predict(features_scaled, verbose=0)[0][0]
-            direction = 1 if confidence > 0.5 else 0
-            return direction, confidence
+            # 只要信心度超過設定閾值就輸出 1
+            direction = 1 if confidence >= self.config.lstm_confidence else 0
+            return direction, float(confidence)
         else:
-            # 簡化模擬：使用技術指標組合
-            row = df.iloc[current_idx]
-            signals = []
-            
-            # RSI 超賣
-            if row['rsi'] < 30:
-                signals.append(0.7)
-            elif row['rsi'] > 70:
-                signals.append(0.3)
-            
-            # MACD 金叉
-            if row['macd_hist'] > 0 and df['macd_hist'].iloc[current_idx-1] <= 0:
-                signals.append(0.8)
-            
-            # Pin Bar
-            if row['is_pin_bar_bullish'] == 1:
-                signals.append(0.75)
-            
-            # Z-Score 超賣
-            if row['zscore_20'] < -1.5:
-                signals.append(0.7)
-            
-            if signals:
-                avg_confidence = np.mean(signals)
-                direction = 1 if avg_confidence > 0.5 else 0
-                return direction, avg_confidence
-            
             return 0, 0.5
