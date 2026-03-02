@@ -168,30 +168,30 @@ class V9Backtester:
                     })
             
             # ==========================================
-            # 2. 進場邏輯
+            # 2. 進場邏輯（放寬條件）
             # ==========================================
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars:
                 if daily_trades_count >= self.config.max_daily_trades:
                     continue
                 
-                # 多頭趨勢
+                # 多頭趨勢（放寬：只要 EMA50 > EMA200）
                 trend_up = row['ema_50'] > row['ema_200']
                 if not trend_up:
                     continue
                 
-                # 價格回調到 EMA
+                # 價格回調到 EMA（放寬容忍度到 2%）
                 pullback_ema = row['ema_50'] if self.config.pullback_to_ema == 'EMA50' else row['ema_20']
-                near_ema = abs(row['close'] - pullback_ema) / row['close'] < 0.01
+                near_ema = abs(row['close'] - pullback_ema) / row['close'] < 0.02
                 if not near_ema:
                     continue
                 
-                # RSI 超賣
-                if row['rsi'] > self.config.rsi_threshold:
+                # RSI 超賣（放寬到 40）
+                if row['rsi'] > 40:
                     continue
                 
-                # MACD 開始轉強
-                if row['macd_hist'] <= 0:
-                    continue
+                # 移除 MACD 過濾（太嚴格）
+                # if row['macd_hist'] <= 0:
+                #     continue
                 
                 # 開倉
                 position = 1
