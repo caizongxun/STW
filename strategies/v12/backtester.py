@@ -252,8 +252,8 @@ class V12Backtester:
             
             # 2. 進場邏輯
             if position == 0 and trades_today < self.config.max_daily_trades:
-                # 核心：AI 預測機率超過動態最佳閾值
-                if row['ai_prob'] > self.config.best_threshold:
+                # 修復了這個 Bug，改用 self.best_threshold
+                if row['ai_prob'] > self.best_threshold:
                     
                     position = 1
                     entry_price = row['close']
