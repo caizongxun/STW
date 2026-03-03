@@ -4,19 +4,18 @@ from .backtester import V9Backtester
 from core.data_loader import DataLoader
 
 def render():
-    st.header("V9 - 趨勢回調狙擊手 (Partial TP)")
+    st.header("V9 - 趨勢回調狙擊手 (多重出場模式)")
     
     st.info("""
     **V9 核心特性**：
-    - 🎯 **分批止盈**：達到 1R 時平倉 50%，止損移到保本
-    - 📈 **趨勢回調進場**：只在多頭趨勢的回調時進場
-    - 🛡️ **保本止損**：首次止盈後，剩餘倉位永不虧損
-    - 💰 **高勝率設計**：目標勝率 60%+，盈虧比 1.5+
+    - 🎯 **三種出場模式**：分批止盈 / SMC全額奔跑 / 動態追蹤止盈
+    - 📈 **動態超賣過濾**：Z-Score + BB%B + StochRSI
+    - 🛡️ **順勢回調**：只在多頭趨勢(EMA200)的回調時進場
     
-    **適用場景**：
-    - 趨勢明確的市場環境
-    - 波動率適中的主流幣種
-    - 目標月化 20-40%
+    **出場模式說明**：
+    1. **分批保本 (Partial)**：勝率最高，但盈虧比較低。適合震盪上行。
+    2. **全額奔跑 (SMC)**：勝率較低(約35-45%)，但盈虧比極高。適合強單邊趨勢。
+    3. **追蹤止盈 (Trailing)**：平衡型。達標後不平倉，只移動止損點保護利潤。
     """)
     
     col1, col2 = st.columns([1, 2])
@@ -32,18 +31,35 @@ def render():
         with col_days:
             simulation_days = st.number_input("回測天數", 30, 180, 60)
         
-        st.markdown("### 進場設定")
-        rsi_threshold = st.slider("RSI 超賣閾值", 25, 40, 35, 5)
-        pullback_to_ema = st.selectbox("回調目標", ['EMA20', 'EMA50'], index=1)
+        st.markdown("### 出場模式設定 (核心)")
+        exit_mode = st.radio(
+            "選擇出場邏輯",
+            ["trailing", "smc_runner", "partial_tp"],
+            format_func=lambda x: {
+                "trailing": "🚀 動態追蹤止盈 (推薦)",
+                "smc_runner": "💎 SMC 全額奔跑 (高盈虧比)",
+                "partial_tp": "🛡️ 分批止盈+保本 (高勝率)"
+            }[x]
+        )
         
-        st.markdown("### 出場設定")
-        tp1_r = st.slider("第一止盈 (R)", 0.5, 2.0, 1.0, 0.1)
-        tp2_r = st.slider("第二止盈 (R)", 1.5, 4.0, 2.5, 0.5)
-        partial_tp_pct = st.slider("首次止盈平倉比例 (%)", 30, 70, 50, 10) / 100.0
+        if exit_mode == "partial_tp":
+            tp1_r = st.slider("第一止盈 (R)", 0.5, 2.0, 1.0, 0.1)
+            tp2_r = st.slider("第二止盈 (R)", 1.5, 5.0, 2.5, 0.5)
+            partial_tp_pct = st.slider("首次止盈平倉比例 (%)", 30, 70, 30, 10) / 100.0
+        elif exit_mode == "trailing":
+            st.info("當達到啟動點時，止損移至保本；之後價格每上漲 0.5R，止損跟著上移。")
+            tp1_r = st.slider("啟動追蹤起點 (R)", 1.0, 2.5, 1.5, 0.1)
+            tp2_r = st.slider("極限止盈目標 (R)", 2.0, 10.0, 4.0, 0.5)
+            partial_tp_pct = 0.0
+        else: # smc_runner
+            st.info("不提前平倉，不移動保本，要麼碰到止損，要麼碰到止盈。")
+            tp1_r = 0.0
+            tp2_r = st.slider("固定止盈目標 (R)", 1.5, 5.0, 2.5, 0.1)
+            partial_tp_pct = 0.0
         
         st.markdown("### 風險管理")
-        base_risk = st.slider("基礎風險 (%)", 1.0, 5.0, 2.0, 0.5) / 100.0
-        max_leverage = st.slider("最大槓桿", 1, 5, 3, 1)
+        base_risk = st.slider("單筆風險 (%)", 1.0, 5.0, 2.0, 0.5) / 100.0
+        max_leverage = st.slider("最大槓桿", 1, 10, 3, 1)
         atr_multiplier = st.slider("止損 ATR 倍數", 0.5, 3.0, 1.5, 0.1)
         
         test_btn = st.button("🚀 開始 V9 回測", type="primary", use_container_width=True)
@@ -55,8 +71,7 @@ def render():
                     symbol=symbol,
                     capital=capital,
                     simulation_days=simulation_days,
-                    rsi_threshold=rsi_threshold,
-                    pullback_to_ema=pullback_to_ema,
+                    exit_mode=exit_mode,
                     tp1_r=tp1_r,
                     tp2_r=tp2_r,
                     partial_tp_pct=partial_tp_pct,
@@ -69,7 +84,7 @@ def render():
                 df = loader.load_data(symbol, '15m')
                 
                 if df is not None and not df.empty:
-                    st.info("📋 正在回測 V9 策略...")
+                    st.info(f"📋 正在回測 V9 ({exit_mode} 模式)...")
                     bt = V9Backtester(config)
                     results = bt.run(df)
                     
@@ -100,36 +115,30 @@ def render():
                     col_c3.metric("平均持倉(h)", f"{results.get('avg_holding_hours', 0):.1f}")
                     col_c4.metric("盈虧比", f"{results.get('profit_factor', 0):.2f}")
                     
-                    # 分批止盈統計
-                    if 'partial_tp_stats' in results:
-                        st.markdown("---")
-                        st.markdown("### 📊 分批止盈統計")
-                        stats = results['partial_tp_stats']
-                        
-                        col_d1, col_d2, col_d3, col_d4 = st.columns(4)
-                        col_d1.metric("觸發 TP1 次數", stats.get('tp1_count', 0))
-                        col_d2.metric("觸發 TP2 次數", stats.get('tp2_count', 0))
-                        col_d3.metric("保本出場次數", stats.get('breakeven_count', 0))
-                        col_d4.metric("止損次數", stats.get('sl_count', 0))
-                        
-                        st.info(f"""
-                        **分批止盈效果分析**：
-                        - {stats.get('tp1_count', 0)} 筆交易達到了 TP1 ({tp1_r}R)，鎖定了 {partial_tp_pct*100:.0f}% 倉位的利潤
-                        - 其中 {stats.get('tp2_count', 0)} 筆交易讓剩餘倉位達到了 TP2 ({tp2_r}R)
-                        - {stats.get('breakeven_count', 0)} 筆交易在 TP1 後觸發保本止損（不賺不賠）
-                        - 只有 {stats.get('sl_count', 0)} 筆交易直接止損（未達到 TP1）
-                        """)
+                    # 出場模式統計
+                    st.markdown("---")
+                    st.markdown("### 📊 出場分析")
+                    stats = results.get('exit_stats', {})
                     
-                    # 結果評估
-                    if monthly_return >= 20 and results['win_rate'] >= 55:
-                        st.success(f"🎉 **優秀表現！** 月化 {monthly_return:.1f}%，勝率 {results['win_rate']:.1f}%")
-                        if results['max_drawdown'] < 15:
-                            st.success("✅ 回撤控制良好，可以考慮實盤。")
-                            st.balloons()
-                    elif monthly_return >= 10:
-                        st.info(f"📊 月化報酬 {monthly_return:.1f}%，表現尚可。")
-                    else:
-                        st.warning(f"⚠️ 月化報酬 {monthly_return:.1f}% 未達預期。")
+                    col_d1, col_d2, col_d3 = st.columns(3)
+                    
+                    if exit_mode == "partial_tp":
+                        col_d1.metric("觸發 TP1 (保本)", stats.get('tp1_count', 0))
+                        col_d2.metric("觸發 TP2 (全勝)", stats.get('tp2_count', 0))
+                        col_d3.metric("直接止損 (全敗)", stats.get('sl_count', 0))
+                        st.info("💡 提示：如果止損次數 > TP1次數，代表進場點太差；如果保本次數遠大於 TP2次數，代表 TP1 設太近，容易被震盪洗掉。")
+                        
+                    elif exit_mode == "trailing":
+                        col_d1.metric("成功推保本次數", stats.get('trailing_activated', 0))
+                        col_d2.metric("追蹤打損 (獲利)", stats.get('trailing_stopped', 0))
+                        col_d3.metric("直接止損 (全敗)", stats.get('sl_count', 0))
+                        st.info("💡 提示：成功推保本代表你立於不敗之地。追蹤打損次數多是正常的，這代表策略正在努力讓利潤奔跑。")
+                        
+                    elif exit_mode == "smc_runner":
+                        col_d1.metric("完美止盈", stats.get('tp2_count', 0))
+                        col_d2.metric("直接止損", stats.get('sl_count', 0))
+                        col_d3.metric("勝率", f"{results['win_rate']:.1f}%")
+                        st.info("💡 提示：SMC 模式不看重勝率，只看盈虧比。只要盈虧比大於 2.0，勝率 35% 也能賺錢。")
                     
                 else:
                     st.error("無法載入數據")

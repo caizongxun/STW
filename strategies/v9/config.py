@@ -4,20 +4,17 @@ from dataclasses import dataclass
 class V9Config:
     """V9 趨勢回調狙擊手配置"""
     
-    # 基礎設定
     symbol: str = 'BTCUSDT'
     capital: float = 10000.0
     simulation_days: int = 60
     
-    # 進場條件
-    rsi_threshold: int = 35
-    pullback_to_ema: str = 'EMA50'
-    trend_ema: int = 200
+    # 出場模式: 'partial_tp', 'smc_runner', 'trailing'
+    exit_mode: str = 'trailing'
     
-    # 分批止盈設定
-    tp1_r: float = 1.0
-    tp2_r: float = 2.5
-    partial_tp_pct: float = 0.5
+    # 出場參數
+    tp1_r: float = 1.5           # Partial模式的TP1，或Trailing模式的啟動點
+    tp2_r: float = 4.0           # 最終目標極限
+    partial_tp_pct: float = 0.0  # 平倉比例
     
     # 風險管理
     base_risk: float = 0.02
