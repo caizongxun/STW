@@ -192,7 +192,7 @@ class V9Backtester:
                     })
             
             # ==========================================
-            # 2. 進場邏輯（動態三重確認）
+            # 2. 進場邏輯（放寬過濾器）
             # ==========================================
             if position == 0 and (i - last_exit_idx) >= self.config.cooldown_bars:
                 if daily_trades_count >= self.config.max_daily_trades:
@@ -203,39 +203,38 @@ class V9Backtester:
                 if not trend_up:
                     continue
                 
-                # 條件 2：價格回調到 EMA50 附近
+                # 條件 2：價格回調到 EMA50 附近 (放寬從 2.5% 到 4.0%)
                 pullback_ema = row['ema_50']
-                near_ema = abs(row['close'] - pullback_ema) / row['close'] < 0.025
+                near_ema = abs(row['close'] - pullback_ema) / row['close'] < 0.040
                 if not near_ema:
                     continue
                 
-                # 條件 3：動態超賣確認（至少滿足 2 個）
-                # 根據波動率動態調整閾值
+                # 條件 3：動態超賣確認（放寬，至少滿足 1 個即可，之前是 2 個）
                 if row['atr_percentile'] > 1.3:  # 高波動
-                    z_threshold = -1.2
-                    bb_threshold = 0.3
-                    stoch_threshold = 0.35
+                    z_threshold = -1.0
+                    bb_threshold = 0.35
+                    stoch_threshold = 0.40
                 else:  # 低波動
-                    z_threshold = -1.8
-                    bb_threshold = 0.25
-                    stoch_threshold = 0.25
+                    z_threshold = -1.5
+                    bb_threshold = 0.30
+                    stoch_threshold = 0.30
                 
                 oversold_signals = [
-                    row['z_score'] < z_threshold,           # Z-Score 超賣
-                    row['bb_position'] < bb_threshold,      # BB%B 超賣
-                    row['stoch_rsi'] < stoch_threshold      # StochRSI 超賣
+                    row['z_score'] < z_threshold,           
+                    row['bb_position'] < bb_threshold,      
+                    row['stoch_rsi'] < stoch_threshold      
                 ]
                 
-                if sum(oversold_signals) < 2:
+                if sum(oversold_signals) < 1:  # 放寬！
                     continue
                 
                 entry_signal_count += 1
                 
-                # 條件 4：成交量確認（避免在無量下跌中接刀）
-                if row['volume_ratio'] < 0.8:  # 成交量太低
-                    continue
+                # 取消成交量過濾器 (這往往會錯殺好機會)
+                # if row['volume_ratio'] < 0.8:
+                #     continue
                 
-                # 條件 5：MACD 開始轉強（可選）
+                # 條件 5：MACD 開始轉強
                 macd_turning = row['macd_hist'] > df['macd_hist'].iloc[i-1]
                 if not macd_turning:
                     continue
