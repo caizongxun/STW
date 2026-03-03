@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-from strategies import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11
+from strategies import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12
 
 AVAILABLE_VERSIONS = {
     'v1': v1,
@@ -17,14 +17,15 @@ AVAILABLE_VERSIONS = {
     'v8 (LSTM Reversal)': v8,
     'v9 (Partial TP Sniper)': v9,
     'v10 (BB Squeeze Breakout)': v10,
-    'v11 (XGBoost Quant)': v11
+    'v11 (XGBoost Quant)': v11,
+    'v12 (Advanced ML - Triple Barrier)': v12
 }
 
 def main():
     st.set_page_config(page_title="Smart Trading Terminal", layout="wide")
     
     st.sidebar.title("STT Version Control")
-    version = st.sidebar.radio("Select Strategy Version", list(AVAILABLE_VERSIONS.keys()), index=10)
+    version = st.sidebar.radio("Select Strategy Version", list(AVAILABLE_VERSIONS.keys()), index=11)
     
     AVAILABLE_VERSIONS[version].render()
 
