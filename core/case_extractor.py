@@ -34,6 +34,9 @@ class CaseExtractor:
         Returns:
             詳細案例列表
         """
+        # 標準化時間欄位名稱
+        df = self._standardize_time_column(df)
+        
         # 計算所有技術指標
         df = self._calculate_all_indicators(df)
         
@@ -53,6 +56,35 @@ class CaseExtractor:
                 continue
         
         return detailed_cases
+    
+    def _standardize_time_column(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        標準化時間欄位為 'timestamp'
+        支援: timestamp, open_time, close_time, time, DatetimeIndex
+        """
+        df = df.copy()
+        
+        # 檢查是否已有 timestamp 欄位
+        if 'timestamp' in df.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+            return df
+        
+        # 嘗試從其他欄位找到時間
+        time_candidates = ['open_time', 'close_time', 'time']
+        for col in time_candidates:
+            if col in df.columns:
+                df['timestamp'] = pd.to_datetime(df[col])
+                print(f"✅ 已將 '{col}' 轉換為 'timestamp' 欄位")
+                return df
+        
+        # 嘗試使用 DatetimeIndex
+        if isinstance(df.index, pd.DatetimeIndex):
+            df['timestamp'] = df.index
+            print("✅ 已從 DatetimeIndex 創建 'timestamp' 欄位")
+            return df
+        
+        raise ValueError("無法找到有效的時間欄位，請確保數據包含 'timestamp', 'open_time', 'close_time', 'time' 其中之一")
     
     def _calculate_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """計算所有40+技術指標"""
@@ -133,29 +165,35 @@ class CaseExtractor:
         entry_time = pd.to_datetime(trade['entry_time'])
         exit_time = pd.to_datetime(trade['exit_time'])
         
-        # 確保時間索引
+        # 確保有 timestamp 欄位
         if 'timestamp' not in df.columns:
-            if isinstance(df.index, pd.DatetimeIndex):
-                df['timestamp'] = df.index
-            else:
-                raise ValueError("DataFrame 必須包含 timestamp 欄位或 DatetimeIndex")
+            raise ValueError("DataFrame 必須包含 timestamp 欄位")
         
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         
         # 找到進場K線的索引
-        entry_idx = df[df['timestamp'] <= entry_time].index[-1]
-        exit_idx = df[df['timestamp'] <= exit_time].index[-1]
+        entry_mask = df['timestamp'] <= entry_time
+        if not entry_mask.any():
+            raise ValueError(f"找不到進場時間 {entry_time} 對應的K線")
+        
+        entry_idx = df[entry_mask].index[-1]
+        
+        exit_mask = df['timestamp'] <= exit_time
+        if not exit_mask.any():
+            raise ValueError(f"找不到出場時間 {exit_time} 對應的K線")
+        
+        exit_idx = df[exit_mask].index[-1]
         
         # 提取進場前5根K線的指標變化
         lookback = 5
-        start_idx = max(0, entry_idx - lookback)
+        start_idx = max(df.index[0], entry_idx - lookback)
         
         candles = []
-        for i in range(start_idx, entry_idx + 1):
-            row = df.iloc[i]
+        for idx in range(start_idx, entry_idx + 1):
+            row = df.loc[idx]
             candle = {
                 'time': str(row['timestamp']),
-                'position': 'entry' if i == entry_idx else f'entry-{entry_idx - i}',
+                'position': 'entry' if idx == entry_idx else f'entry-{entry_idx - idx}',
                 'ohlcv': [
                     float(row['open']),
                     float(row['high']),
@@ -178,11 +216,11 @@ class CaseExtractor:
             )
             holding_indices = sorted(set(sampled))
         
-        for i in holding_indices:
-            row = df.iloc[i]
+        for idx in holding_indices:
+            row = df.loc[idx]
             candle = {
                 'time': str(row['timestamp']),
-                'position': 'exit' if i == exit_idx else f'holding+{i - entry_idx}',
+                'position': 'exit' if idx == exit_idx else f'holding+{idx - entry_idx}',
                 'ohlcv': [
                     float(row['open']),
                     float(row['high']),
@@ -210,7 +248,7 @@ class CaseExtractor:
             'holding_bars': int(exit_idx - entry_idx),
             'candles': candles,
             'indicator_trends': indicator_trends,
-            'entry_logic': self._generate_entry_logic(df.iloc[entry_idx], trade['direction']),
+            'entry_logic': self._generate_entry_logic(df.loc[entry_idx], trade['direction']),
             'exit_reason': trade.get('exit_reason', 'UNKNOWN')
         }
         
@@ -221,7 +259,7 @@ class CaseExtractor:
         indicators = {}
         
         # 只保留技術指標，排除原始OHLCV和時間
-        exclude_cols = ['open', 'high', 'low', 'close', 'volume', 'timestamp', 'time', 'symbol']
+        exclude_cols = ['open', 'high', 'low', 'close', 'volume', 'timestamp', 'time', 'symbol', 'open_time', 'close_time']
         
         for col in row.index:
             if col not in exclude_cols and not pd.isna(row[col]):
