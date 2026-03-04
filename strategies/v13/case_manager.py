@@ -9,7 +9,7 @@ from pathlib import Path
 from core.case_extractor import CaseExtractor
 from core.data_loader import DataLoader
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def render_case_manager():
@@ -127,25 +127,36 @@ def render_case_manager():
         
         st.info("""
         **提取邏輯**：
-        1. 從 Binance 載入歷史K線數據
-        2. 計算40+技術指標
-        3. 識別潛在交易訊號（基於RSI超買/超賣 + 成交量爆發）
-        4. 模擬交易並篩選獲利 > {min_profit_pct}% 的案例
-        5. 提取進場時刻完整特徵並儲存
+        1. 從 HuggingFace/本地緩存 載入歷史K線數據
+        2. 截取最近N天的數據
+        3. 計算40+技術指標
+        4. 識別潛在交易訊號（基於RSI超買/超賣 + 成交量爆發）
+        5. 模擬交易並篩選獲利 > {min_profit_pct}% 的案例
+        6. 提取進場時刻完整特徵並儲存
         """)
         
         if st.button("🚀 開始提取", type="primary"):
-            with st.spinner(f"正在載入 {import_symbol} {import_timeframe} 過去 {import_days} 天數據..."):
+            with st.spinner(f"正在載入 {import_symbol} {import_timeframe} 歷史數據..."):
                 try:
-                    # 載入數據
+                    # 載入完整數據
                     loader = DataLoader()
-                    df = loader.load_data(import_symbol, import_timeframe, days=import_days)
+                    df_full = loader.load_data(import_symbol, import_timeframe)
                     
-                    if df is None or len(df) < 200:
+                    if df_full is None or len(df_full) < 200:
                         st.error("❌ 數據不足，至少需要200根K線")
                         return
                     
-                    st.success(f"✅ 已載入 {len(df)} 根K線")
+                    st.success(f"✅ 已載入 {len(df_full)} 根K線（完整歷史）")
+                    
+                    # 截取最近N天的數據
+                    with st.spinner(f"🕒 截取最近 {import_days} 天數據..."):
+                        df = filter_recent_days(df_full, import_timeframe, import_days)
+                    
+                    if df is None or len(df) < 200:
+                        st.error(f"❌ 最近{import_days}天數據不足，請增加天數或確認數據源")
+                        return
+                    
+                    st.success(f"✅ 截取完成：{len(df)} 根K線（約 {import_days} 天）")
                     
                     # 模擬交易找到獲利案例
                     with st.spinner("🤖 正在識別獲利交易訊號..."):
@@ -181,6 +192,52 @@ def render_case_manager():
         else:
             cases_data = load_cases(cases_path)
             render_statistics(cases_data)
+
+
+def filter_recent_days(df: pd.DataFrame, timeframe: str, days: int) -> pd.DataFrame:
+    """
+    截取最近N天的數據
+    
+    Args:
+        df: 完整歷史數據
+        timeframe: 時間框架 (15m/1h/4h/1d)
+        days: 要截取多少天
+    
+    Returns:
+        截取後的DataFrame
+    """
+    # 確定時間欄位
+    time_col = None
+    for col in ['timestamp', 'open_time', 'close_time', 'time']:
+        if col in df.columns:
+            time_col = col
+            break
+    
+    if time_col is None:
+        # 嘗試使用index
+        if isinstance(df.index, pd.DatetimeIndex):
+            df = df.copy()
+            df['timestamp'] = df.index
+            time_col = 'timestamp'
+        else:
+            raise ValueError("無法找到時間欄位")
+    
+    # 確保是datetime類型
+    if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+        df[time_col] = pd.to_datetime(df[time_col])
+    
+    # 計算截取時間點
+    latest_time = df[time_col].max()
+    cutoff_time = latest_time - timedelta(days=days)
+    
+    # 截取
+    df_filtered = df[df[time_col] >= cutoff_time].copy()
+    
+    # 恢復timestamp欄（如果是從index複製的）
+    if 'timestamp' not in df.columns and time_col == 'timestamp':
+        df_filtered = df_filtered.drop('timestamp', axis=1)
+    
+    return df_filtered
 
 
 def render_case_detail(case: dict):
@@ -241,6 +298,17 @@ def simulate_trades(df: pd.DataFrame, symbol: str, min_profit_pct: float) -> lis
     """
     import talib
     
+    # 確定時間欄位
+    time_col = None
+    for col in ['timestamp', 'open_time', 'close_time', 'time']:
+        if col in df.columns:
+            time_col = col
+            break
+    if time_col is None and isinstance(df.index, pd.DatetimeIndex):
+        df = df.copy()
+        df['timestamp'] = df.index
+        time_col = 'timestamp'
+    
     close = df['close'].values
     high = df['high'].values
     low = df['low'].values
@@ -259,7 +327,7 @@ def simulate_trades(df: pd.DataFrame, symbol: str, min_profit_pct: float) -> lis
                 position = {
                     'direction': 'LONG',
                     'entry_idx': i,
-                    'entry_time': str(df.iloc[i]['timestamp'] if 'timestamp' in df.columns else df.index[i]),
+                    'entry_time': str(df.iloc[i][time_col]),
                     'entry_price': close[i]
                 }
             # SHORT條件：RSI>70 + 成交量>1.5x
@@ -267,7 +335,7 @@ def simulate_trades(df: pd.DataFrame, symbol: str, min_profit_pct: float) -> lis
                 position = {
                     'direction': 'SHORT',
                     'entry_idx': i,
-                    'entry_time': str(df.iloc[i]['timestamp'] if 'timestamp' in df.columns else df.index[i]),
+                    'entry_time': str(df.iloc[i][time_col]),
                     'entry_price': close[i]
                 }
         else:
@@ -280,7 +348,7 @@ def simulate_trades(df: pd.DataFrame, symbol: str, min_profit_pct: float) -> lis
                             'symbol': symbol,
                             'direction': position['direction'],
                             'entry_time': position['entry_time'],
-                            'exit_time': str(df.iloc[i]['timestamp'] if 'timestamp' in df.columns else df.index[i]),
+                            'exit_time': str(df.iloc[i][time_col]),
                             'entry_price': position['entry_price'],
                             'exit_price': close[i],
                             'pnl_pct': pnl_pct,
@@ -295,7 +363,7 @@ def simulate_trades(df: pd.DataFrame, symbol: str, min_profit_pct: float) -> lis
                             'symbol': symbol,
                             'direction': position['direction'],
                             'entry_time': position['entry_time'],
-                            'exit_time': str(df.iloc[i]['timestamp'] if 'timestamp' in df.columns else df.index[i]),
+                            'exit_time': str(df.iloc[i][time_col]),
                             'entry_price': position['entry_price'],
                             'exit_price': close[i],
                             'pnl_pct': pnl_pct,
