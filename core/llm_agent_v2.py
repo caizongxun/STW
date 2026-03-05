@@ -129,6 +129,11 @@ class EnhancedDeepSeekAgentV2:
             # 7. 調用DeepSeek
             response = self.model.invoke(prompt)
             
+            # ★★★ 關鍵修改：在接收 AI 輸出後立即暴力替換 null ★★★
+            response = response.replace(': null', ': 0.0')
+            response = response.replace(':null', ': 0.0')
+            response = re.sub(r'"(entry_price|stop_loss|take_profit|position_size_pct)"\s*:\s*null', r'"\1": 0.0', response, flags=re.IGNORECASE)
+            
             # 8. 解析回答
             decision = self._parse_response(response)
             decision['matched_cases'] = [c['trade_id'] for c in similar_cases]
@@ -316,91 +321,44 @@ Trading Rules:
 - Only open if confidence > 70%
 - Risk:Reward must be >= 1:2
 - Stop loss based on ATR or pattern invalidation
-- If consecutive losses >= 3, set position_size_pct = 0
+- If consecutive losses >= 3, set position_size_pct = 0.0
 
-CRITICAL JSON FORMAT:
-1. Use 0.0 instead of null
-2. Return ONLY final numbers (NO math expressions)
-3. position_size_pct: YOUR calculated position (0-20)
+⚠️ CRITICAL: NEVER use null - ALWAYS use 0.0 for numeric fields
 
 Respond in JSON:
-```json
 {
   "signal": "LONG" | "SHORT" | "HOLD",
-  "confidence": 0-100,
-  "entry_price": <number>,
-  "stop_loss": <number>,
-  "take_profit": <number>,
-  "position_size_pct": <0-20 based on your analysis>,
-  "reasoning": "<explain pattern, setup quality, and why this position size>",
-  "key_risks": ["risk1", "risk2"]
+  "confidence": 65,
+  "entry_price": 0.0,
+  "stop_loss": 0.0,
+  "take_profit": 0.0,
+  "position_size_pct": 0.0,
+  "reasoning": "explain",
+  "key_risks": ["risk1"]
 }
-```
 """
         
         return prompt
     
-    def _clean_json_math(self, text: str) -> str:
-        """
-        清理 JSON 中的數學表達式
-        支持多層計算:
-        - 單層: 65505.24 - 284.12 = 65221.12
-        - 多層: 65505 + (65505 - 65221)*2 = 65505 + 564 = 66069
-        提取最後的結果值
-        """
-        lines = text.split('\n')
-        cleaned_lines = []
-        
-        for line in lines:
-            # 檢查是否包含計算式
-            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price', 'confidence', 'position_size_pct']):
-                # 找出所有 = 號後的數字 (可能有多個)
-                all_results = re.findall(r'=\s*([\d.]+)', line)
-                
-                if all_results:
-                    # 取最後一個結果 (最終值)
-                    final_value = all_results[-1]
-                    
-                    # 提取欄位名稱
-                    field_match = re.search(r'"(\w+)"\s*:', line)
-                    if field_match:
-                        field_name = field_match.group(1)
-                        has_comma = line.rstrip().endswith(',')
-                        new_line = f'  "{field_name}": {final_value}'
-                        if has_comma:
-                            new_line += ','
-                        cleaned_lines.append(new_line)
-                        continue
-            
-            cleaned_lines.append(line)
-        
-        return '\n'.join(cleaned_lines)
-    
     def _parse_response(self, response: str) -> Dict:
         """Parse DeepSeek JSON response with comprehensive cleaning"""
         try:
-            # 步驟1: 清理多層計算式
-            response = self._clean_json_math(response)
-            
-            # 步驟2: 多重 null 替換 (在解析前)
-            response = response.replace('null', '0.0')
-            response = re.sub(r'\bnull\b', '0.0', response, flags=re.IGNORECASE)
-            response = re.sub(r':\s*null', ': 0.0', response, flags=re.IGNORECASE)
-            
-            # 步驟3: 提取JSON
+            # 步驟1: 提取JSON
             json_match = re.search(r'\{[\s\S]*?\}', response)
             if json_match:
                 json_str = json_match.group(0)
             else:
                 json_str = response.strip()
             
-            # 步驟4: 再次替換null (防萬一)
-            json_str = json_str.replace('null', '0.0')
+            # 步驟2: 暴力替換null
+            json_str = json_str.replace(': null', ': 0.0')
+            json_str = json_str.replace(':null', ': 0.0')
+            json_str = re.sub(r'"(entry_price|stop_loss|take_profit|position_size_pct)"\s*:\s*null', r'"\1": 0.0', json_str, flags=re.IGNORECASE)
             
-            # 步驟5: 解析
+            # 步驟3: 解析
             decision = json.loads(json_str)
             
-            # 步驟6: 強制安全轉型 (處理所有可能的None)
+            # 步驟4: 強制安全轉型
             numeric_fields = ['confidence', 'entry_price', 'stop_loss', 'take_profit', 'position_size_pct']
             for field in numeric_fields:
                 val = decision.get(field)
@@ -412,7 +370,7 @@ Respond in JSON:
                     except (ValueError, TypeError):
                         decision[field] = 0.0
             
-            # 步驟7: 標準化signal
+            # 步驟5: 標準化signal
             decision['signal'] = decision.get('signal', 'HOLD').upper()
             if decision['signal'] not in ['LONG', 'SHORT', 'HOLD']:
                 decision['signal'] = 'HOLD'
