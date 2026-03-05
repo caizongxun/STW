@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 from pybit.unified_trading import HTTP
 import pandas as pd
+import json
 
 
 class BybitDemoTrader:
@@ -43,14 +44,9 @@ class BybitDemoTrader:
         self.demo_mode = demo_mode
         
         # 根據模式選擇 testnet 參數
-        # 注意:pybit 5.x 版本不支持自定義 endpoint
-        # Demo Trading 和 Mainnet 都使用 testnet=False
-        # 差別在於 API Key 的類型
         if demo_mode == 'testnet':
             testnet = True
         else:
-            # demo 和 mainnet 都使用 testnet=False
-            # API Key 本身決定了是 Demo 還是 Mainnet
             testnet = False
         
         # 初始化 Bybit HTTP 客戶端
@@ -69,7 +65,7 @@ class BybitDemoTrader:
     def set_leverage(self, leverage: int):
         """設置槓框倍數"""
         try:
-            leverage = max(1, min(leverage, self.max_leverage))  # 限制範圍
+            leverage = max(1, min(leverage, self.max_leverage))
             
             result = self.session.set_leverage(
                 category="linear",
@@ -101,73 +97,85 @@ class BybitDemoTrader:
                 'unrealized_pnl': float
             }
         """
+        print("\n[DEBUG] ========== 開始讀取餘額 ==========")
+        
+        # 1. 嘗試 UNIFIED 帳戶
+        print("[DEBUG] 嘗試讀取 UNIFIED 帳戶...")
         try:
-            # 1. 嘗試讀取 UNIFIED 帳戶
-            try:
-                result = self.session.get_wallet_balance(
-                    accountType="UNIFIED",
-                    coin="USDT"
+            result = self.session.get_wallet_balance(
+                accountType="UNIFIED",
+                coin="USDT"
+            )
+            
+            print(f"[DEBUG] UNIFIED API 返回: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            
+            if result['retCode'] == 0 and result['result']['list']:
+                account_info = result['result']['list'][0]
+                print(f"[DEBUG] UNIFIED 帳戶資訊: {json.dumps(account_info, indent=2, ensure_ascii=False)}")
+                
+                usdt_info = next(
+                    (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
+                    None
                 )
                 
-                if result['retCode'] == 0 and result['result']['list']:
-                    account_info = result['result']['list'][0]
-                    usdt_info = next(
-                        (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
-                        None
-                    )
+                if usdt_info:
+                    equity = float(usdt_info['equity'])
+                    print(f"[DEBUG] UNIFIED USDT 餘額: {equity}")
                     
-                    if usdt_info and float(usdt_info['equity']) > 0:
+                    if equity > 0:
+                        print("[DEBUG] ✅ UNIFIED 帳戶有餘額,使用此帳戶")
                         return {
-                            'total_equity': float(usdt_info['equity']),
+                            'total_equity': equity,
                             'available_balance': float(usdt_info['availableToWithdraw']),
                             'unrealized_pnl': float(usdt_info['unrealisedPnl'])
                         }
-            except:
-                pass
-            
-            # 2. 嘗試讀取 CONTRACT 帳戶
-            try:
-                result = self.session.get_wallet_balance(
-                    accountType="CONTRACT",
-                    coin="USDT"
-                )
-                
-                if result['retCode'] == 0 and result['result']['list']:
-                    account_info = result['result']['list'][0]
-                    usdt_info = next(
-                        (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
-                        None
-                    )
-                    
-                    if usdt_info:
-                        return {
-                            'total_equity': float(usdt_info['equity']),
-                            'available_balance': float(usdt_info['availableToWithdraw']),
-                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
-                        }
-            except:
-                pass
-            
-            return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
-            
+                    else:
+                        print("[DEBUG] ⚠️ UNIFIED 帳戶餘額為 0,嘗試 CONTRACT")
         except Exception as e:
-            print(f"[BYBIT] 獲取餘額失敗: {e}")
-            return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
+            print(f"[DEBUG] ❌ UNIFIED 讀取失敗: {e}")
+        
+        # 2. 嘗試 CONTRACT 帳戶
+        print("\n[DEBUG] 嘗試讀取 CONTRACT 帳戶...")
+        try:
+            result = self.session.get_wallet_balance(
+                accountType="CONTRACT",
+                coin="USDT"
+            )
+            
+            print(f"[DEBUG] CONTRACT API 返回: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            
+            if result['retCode'] == 0 and result['result']['list']:
+                account_info = result['result']['list'][0]
+                print(f"[DEBUG] CONTRACT 帳戶資訊: {json.dumps(account_info, indent=2, ensure_ascii=False)}")
+                
+                usdt_info = next(
+                    (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
+                    None
+                )
+                
+                if usdt_info:
+                    equity = float(usdt_info['equity'])
+                    print(f"[DEBUG] CONTRACT USDT 餘額: {equity}")
+                    
+                    if equity > 0:
+                        print("[DEBUG] ✅ CONTRACT 帳戶有餘額,使用此帳戶")
+                        return {
+                            'total_equity': equity,
+                            'available_balance': float(usdt_info['availableToWithdraw']),
+                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
+                        }
+                    else:
+                        print("[DEBUG] ⚠️ CONTRACT 帳戶餘額也為 0")
+        except Exception as e:
+            print(f"[DEBUG] ❌ CONTRACT 讀取失敗: {e}")
+        
+        print("[DEBUG] ❌ 所有帳戶類型都無法讀取餘額")
+        print("[DEBUG] ========================================\n")
+        
+        return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
     
     def get_position(self) -> Optional[Dict]:
-        """
-        獲取當前持倉
-        
-        Returns:
-            {
-                'side': 'Buy'/'Sell',
-                'size': float,
-                'entry_price': float,
-                'current_price': float,
-                'unrealized_pnl': float,
-                'leverage': int
-            }
-        """
+        """獲取當前持倉"""
         try:
             result = self.session.get_positions(
                 category="linear",
@@ -177,7 +185,6 @@ class BybitDemoTrader:
             if result['retCode'] == 0 and result['result']['list']:
                 pos = result['result']['list'][0]
                 
-                # 檢查是否有持倉
                 if float(pos['size']) > 0:
                     self.current_position = {
                         'side': pos['side'],
@@ -215,17 +222,7 @@ class BybitDemoTrader:
             return 0.0
     
     def get_account_info(self) -> Dict:
-        """
-        獲取帳戶資訊 (供AI使用)
-        
-        Returns:
-            {
-                'total_equity': float,
-                'available_balance': float,
-                'unrealized_pnl': float,
-                'max_leverage': int
-            }
-        """
+        """獲取帳戶資訊 (供AI使用)"""
         balance = self.get_balance()
         balance['max_leverage'] = self.max_leverage
         return balance
@@ -238,29 +235,11 @@ class BybitDemoTrader:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None
     ) -> Dict:
-        """
-        下市價單
-        
-        Args:
-            side: 'Buy' 或 'Sell'
-            quantity: 下單數量 (張數)
-            leverage: 槓框倍數 (可選)
-            stop_loss: 止損價
-            take_profit: 止盈價
-        
-        Returns:
-            {
-                'success': bool,
-                'order_id': str,
-                'message': str
-            }
-        """
+        """下市價單"""
         try:
-            # 1. 設置槓框(如果指定)
             if leverage and leverage != self.current_leverage:
                 self.set_leverage(leverage)
             
-            # 2. 下市價單
             result = self.session.place_order(
                 category="linear",
                 symbol=self.symbol,
@@ -278,15 +257,11 @@ class BybitDemoTrader:
                 }
             
             order_id = result['result']['orderId']
-            
-            # 3. 等待成交
             time.sleep(1)
             
-            # 4. 設置止損止盈
             if stop_loss or take_profit:
                 self._set_stop_loss_take_profit(side, stop_loss, take_profit)
             
-            # 5. 記錄交易
             self.trade_history.append({
                 'time': datetime.now().isoformat(),
                 'side': side,
@@ -321,7 +296,7 @@ class BybitDemoTrader:
             params = {
                 "category": "linear",
                 "symbol": self.symbol,
-                "positionIdx": 0  # One-way mode
+                "positionIdx": 0
             }
             
             if stop_loss:
@@ -341,27 +316,13 @@ class BybitDemoTrader:
             print(f"[BYBIT] 設置止損止盈失敗: {e}")
     
     def close_position(self, size: Optional[float] = None) -> Dict:
-        """
-        平倉當前持倉
-        
-        Args:
-            size: 平倉數量 (可選,預設全部平倉)
-        
-        Returns:
-            {
-                'success': bool,
-                'message': str
-            }
-        """
+        """平倉當前持倉"""
         position = self.get_position()
         
         if not position:
             return {'success': False, 'message': '沒有持倉'}
         
-        # 決定平倉數量
         close_size = size if size else position['size']
-        
-        # 反向下單平倉
         close_side = 'Sell' if position['side'] == 'Buy' else 'Buy'
         
         result = self.place_market_order(
@@ -380,50 +341,16 @@ class BybitDemoTrader:
                 'message': f"平倉失敗: {result['message']}"
             }
     
-    def execute_ai_decision(
-        self,
-        decision: Dict,
-        market_data: Dict
-    ) -> Dict:
-        """
-        執行 AI 決策 (支援完整的 action 類型)
-        
-        Args:
-            decision: AI 決策
-                {
-                    'action': 'OPEN_LONG'/'OPEN_SHORT'/'CLOSE'/'ADD_POSITION'/'REDUCE_POSITION'/'HOLD',
-                    'confidence': 75,
-                    'leverage': 2,
-                    'position_size_usdt': 200.0,
-                    'entry_price': 65505.24,
-                    'stop_loss': 65221.12,
-                    'take_profit': 66073.48
-                }
-            
-            market_data: 市場數據 (用於計算下單數量)
-        
-        Returns:
-            {
-                'action': str,
-                'success': bool,
-                'message': str
-            }
-        """
+    def execute_ai_decision(self, decision: Dict, market_data: Dict) -> Dict:
+        """執行 AI 決策"""
         action = decision.get('action', 'HOLD')
         
-        # 1. HOLD - 不操作
         if action == 'HOLD':
-            return {
-                'action': 'HOLD',
-                'success': True,
-                'message': 'AI 建議觀望,不操作'
-            }
+            return {'action': 'HOLD', 'success': True, 'message': 'AI 建議觀望,不操作'}
         
-        # 2. CLOSE - 平倉
         elif action == 'CLOSE':
             return self.close_position()
         
-        # 3. REDUCE_POSITION - 減倉 (50%)
         elif action == 'REDUCE_POSITION':
             position = self.get_position()
             if position:
@@ -434,14 +361,11 @@ class BybitDemoTrader:
             else:
                 return {'action': 'REDUCE_POSITION', 'success': False, 'message': '無持倉可減'}
         
-        # 4. ADD_POSITION - 加倉
         elif action == 'ADD_POSITION':
             position = self.get_position()
             if position:
-                # 加倉金額為原倉位的 50%
                 current_position_value = position['size'] * position['entry_price']
                 add_size_usdt = current_position_value * 0.5
-                
                 current_price = market_data.get('close', self.get_current_price())
                 add_quantity = add_size_usdt / current_price
                 
@@ -457,18 +381,14 @@ class BybitDemoTrader:
             else:
                 return {'action': 'ADD_POSITION', 'success': False, 'message': '無持倉可加'}
         
-        # 5. OPEN_LONG - 開多
         elif action == 'OPEN_LONG':
-            # 先檢查是否有反向持倉
             position = self.get_position()
             if position and position['side'] == 'Sell':
-                # 先平空單
                 close_result = self.close_position()
                 if not close_result['success']:
                     return close_result
                 time.sleep(1)
             
-            # 計算下單數量
             current_price = market_data.get('close', self.get_current_price())
             position_size_usdt = decision.get('position_size_usdt', 100.0)
             quantity = position_size_usdt / current_price
@@ -483,18 +403,14 @@ class BybitDemoTrader:
             result['action'] = 'OPEN_LONG'
             return result
         
-        # 6. OPEN_SHORT - 開空
         elif action == 'OPEN_SHORT':
-            # 先檢查是否有反向持倉
             position = self.get_position()
             if position and position['side'] == 'Buy':
-                # 先平多單
                 close_result = self.close_position()
                 if not close_result['success']:
                     return close_result
                 time.sleep(1)
             
-            # 計算下單數量
             current_price = market_data.get('close', self.get_current_price())
             position_size_usdt = decision.get('position_size_usdt', 100.0)
             quantity = position_size_usdt / current_price
@@ -510,17 +426,12 @@ class BybitDemoTrader:
             return result
         
         else:
-            return {
-                'action': action,
-                'success': False,
-                'message': f'不支援的 action: {action}'
-            }
+            return {'action': action, 'success': False, 'message': f'不支援的 action: {action}'}
     
     def get_trade_history_df(self) -> pd.DataFrame:
         """獲取交易歷史 DataFrame"""
         if not self.trade_history:
             return pd.DataFrame()
-        
         return pd.DataFrame(self.trade_history)
     
     def get_account_summary(self) -> Dict:
