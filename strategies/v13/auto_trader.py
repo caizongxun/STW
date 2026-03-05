@@ -253,30 +253,33 @@ def render_auto_trader_ui():
     with col1:
         symbol = st.selectbox(
             "[SYMBOL] 交易對",
-            ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']
+            ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT'],
+            key='auto_trader_symbol'
         )
         
         interval = st.selectbox(
             "[INTERVAL] 更新間隔",
             [('15 分鐘', 15), ('30 分鐘', 30), ('1 小時', 60)],
-            format_func=lambda x: x[0]
+            format_func=lambda x: x[0],
+            key='auto_trader_interval'
         )[1]
         
         enable_news = st.checkbox(
             "[NEWS] 啟用新聞分析",
             value=True,
-            help="整合 CryptoPanic API 的新聞情緒分析"
+            help="整合 CryptoPanic API 的新聞情緒分析",
+            key='auto_trader_enable_news'
         )
     
     with col2:
-        if st.button("[START] 啟動自動更新", type="primary"):
+        if st.button("[START] 啟動自動更新", type="primary", key='auto_trader_start'):
             st.session_state['auto_trader'] = AutoTrader(
                 symbol=symbol,
                 enable_news=enable_news
             )
             st.session_state['auto_running'] = True
         
-        if st.button("[STOP] 停止更新", type="secondary"):
+        if st.button("[STOP] 停止更新", type="secondary", key='auto_trader_stop'):
             if 'auto_trader' in st.session_state:
                 st.session_state['auto_trader'].stop()
                 st.session_state['auto_running'] = False
