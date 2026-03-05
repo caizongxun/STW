@@ -3,6 +3,7 @@ import pandas as pd
 from .config import V13Config
 from .backtester import V13Backtester
 from .case_manager import render_case_manager
+from .auto_trader import render_auto_trader_ui
 from core.data_loader import DataLoader
 from core.llm_agent_enhanced import EnhancedDeepSeekAgent
 import plotly.graph_objects as go
@@ -17,23 +18,33 @@ def render():
     - 🧠 DeepSeek-R1 14B 本地推理引擎
     - 🎯 Chain-of-Thought 多步驟推理
     - 📚 從歷史成功交易中學習 (40+ 技術指標)
-    - 📈 實時市場數據分析
+    - 📰 整合新聞情緒分析 (CryptoPanic API)
+    - ⏱️ 每 15 分鐘自動更新訊號
     - ⚡ 無 API 費用，完全本地化
     """)
     
     # 主頁籤
-    main_tab1, main_tab2, main_tab3 = st.tabs(["📊 實時信號 & 回測", "📚 學習案例庫", "⚙️ 設定"])
+    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
+        "📊 實時訊號 & 回測", 
+        "⏱️ 自動更新", 
+        "📚 學習案例庫", 
+        "⚙️ 設定"
+    ])
     
-    # === Tab 1: 實時信號 & 回測 ===
+    # === Tab 1: 實時訊號 & 回測 ===
     with main_tab1:
         render_trading_interface()
     
-    # === Tab 2: 學習案例庫 ===
+    # === Tab 2: 自動更新 ===
     with main_tab2:
+        render_auto_trader_ui()
+    
+    # === Tab 3: 學習案例庫 ===
+    with main_tab3:
         render_case_manager()
     
-    # === Tab 3: 設定 ===
-    with main_tab3:
+    # === Tab 4: 設定 ===
+    with main_tab4:
         render_settings()
 
 
@@ -72,10 +83,16 @@ def render_trading_interface():
             help="強化版會自動匹配相似案例並注入到Prompt"
         )
         
+        enable_news = st.checkbox(
+            "📰 啟用新聞分析",
+            value=True,
+            help="整合 CryptoPanic API 的新聞情緒分析"
+        )
+        
         st.divider()
         
-        # 實時信號分析
-        if st.button("🔍 獲取實時 AI 信號", type="secondary"):
+        # 實時訊號分析
+        if st.button("🔍 獲取實時 AI 訊號", type="secondary"):
             with st.spinner("正在調用 DeepSeek-R1 引擎...預計 10-20 秒"):
                 try:
                     loader = DataLoader()
@@ -92,10 +109,23 @@ def render_trading_interface():
                         
                         decision = agent.analyze_market(latest_data)
                         
+                        # 新聞分析
+                        news_summary = None
+                        if enable_news:
+                            from core.news_fetcher import CryptoNewsFetcher
+                            news_fetcher = CryptoNewsFetcher()
+                            news_symbol = symbol.replace('USDT', '')
+                            news_context = news_fetcher.get_news_context_for_trading(news_symbol)
+                            
+                            if news_context['has_news']:
+                                news_summary = f"{news_context['sentiment'].upper()} ({news_context['news_count']} news)\n{news_context['recommendation']}"
+                                decision['news_context'] = news_context
+                        
                         st.session_state['latest_signal'] = decision
                         st.session_state['latest_symbol'] = symbol
                         st.session_state['latest_timeframe'] = timeframe
                         st.session_state['latest_price'] = latest_data['close']
+                        st.session_state['news_summary'] = news_summary
                         st.success("✅ AI 分析完成！")
                     else:
                         st.error("❌ 數據不足，至少需要 200 根 K 線")
@@ -109,9 +139,9 @@ def render_trading_interface():
         test_btn = st.button("🚀 開始 V13 AI 回測", type="primary")
     
     with col2:
-        # 顯示實時信號
+        # 顯示實時訊號
         if 'latest_signal' in st.session_state:
-            st.subheader(f"📶 實時 AI 信號 - {st.session_state.get('latest_symbol', 'N/A')} ({st.session_state.get('latest_timeframe', 'N/A')})")
+            st.subheader(f"📡 實時 AI 訊號 - {st.session_state.get('latest_symbol', 'N/A')} ({st.session_state.get('latest_timeframe', 'N/A')})")
             
             signal = st.session_state['latest_signal']
             
@@ -123,13 +153,13 @@ def render_trading_interface():
                 with st.expander("🔍 查看原始輸出"):
                     st.text(signal.get('reasoning', 'N/A'))
             else:
-                # 信號摘要卡片
+                # 訊號摘要卡片
                 if signal['signal'] == 'LONG':
-                    st.success(f"📈 **看多信號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.success(f"📈 **看多訊號** - 信心度: {signal.get('confidence', 0)}%")
                 elif signal['signal'] == 'SHORT':
-                    st.error(f"📉 **看空信號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.error(f"📉 **看空訊號** - 信心度: {signal.get('confidence', 0)}%")
                 else:
-                    st.warning(f"⏸️ **觀望信號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.warning(f"⏸️ **觀望訊號** - 信心度: {signal.get('confidence', 0)}%")
                 
                 # 詳細交易計劃
                 col_a, col_b, col_c = st.columns(3)
@@ -140,6 +170,10 @@ def render_trading_interface():
                 col_d, col_e = st.columns(2)
                 col_d.metric("盈虧比", f"1:{signal.get('risk_reward_ratio', 0):.2f}")
                 col_e.metric("建議倉位", f"{signal.get('position_size_percent', 0)}%")
+                
+                # 新聞摘要
+                if st.session_state.get('news_summary'):
+                    st.info(f"📰 **新聞情緒**\n{st.session_state['news_summary']}")
                 
                 # 匹配案例（強化版獨有）
                 if signal.get('matched_cases'):
@@ -202,7 +236,7 @@ def render_trading_interface():
                             st.subheader("🤖 AI 決策分析")
                             
                             col_ai1, col_ai2, col_ai3 = st.columns(3)
-                            col_ai1.metric("AI 信號數", results.get('ai_signals_count', 0))
+                            col_ai1.metric("AI 訊號數", results.get('ai_signals_count', 0))
                             col_ai2.metric("AI 平均信心", f"{results.get('ai_avg_confidence', 0):.1f}%")
                             col_ai3.metric("實際開倉率", f"{results.get('execution_rate', 0):.1f}%")
                             
@@ -241,7 +275,7 @@ def render_settings():
     st.subheader("⚙️ V13 進階設定")
     
     st.markdown("""
-    ### 🛠️ Ollama 配置
+    ### 🔧 Ollama 配置
     
     **前提條件**：
     1. 已安裝 Ollama：`ollama -v`
@@ -252,6 +286,22 @@ def render_settings():
     - 推理速度：約 2-3 tokens/秒（RTX 3060）
     - 離線運行：不需網路連接
     - 資源占用：VRAM ~8GB + RAM ~4GB
+    """)
+    
+    st.divider()
+    
+    st.markdown("""
+    ### 📰 新聞 API 配置
+    
+    **CryptoPanic API**：
+    - 免費版本：每小時 300 請求
+    - 申請地址：[https://cryptopanic.com/developers/api/](https://cryptopanic.com/developers/api/)
+    - 使用方式：無需 token 也可使用（但限制較多）
+    
+    **功能**：
+    - 自動獲取最近 24 小時新聞
+    - 情緒分析（看多/看空/中性）
+    - 信心度調整（增加/減少 AI 信心度）
     """)
     
     st.divider()
@@ -275,6 +325,12 @@ def render_settings():
     
     st.markdown("""
     ### 🔄 更新記錄
+    
+    **v2.1 (2026-03-05)**
+    - ✅ 新增 15 分鐘自動更新功能
+    - ✅ 整合 CryptoPanic 新聞 API
+    - ✅ 修復 null 解析問題
+    - ✅ 新增 V2 強化引擎 (llm_agent_v2)
     
     **v2.0 (2026-03-04)**
     - ✅ 新增強化AI引擎（`EnhancedDeepSeekAgent`）
@@ -300,7 +356,7 @@ def prepare_market_features(row, df):
     low = df['low'].values
     volume = df['volume'].values
     
-    # 趨勢
+    # 趋勢
     ema9 = talib.EMA(close, timeperiod=9)
     ema21 = talib.EMA(close, timeperiod=21)
     ema50 = talib.EMA(close, timeperiod=50)
@@ -342,7 +398,7 @@ def prepare_market_features(row, df):
         'symbol': row.get('symbol', 'UNKNOWN'),
         'close': float(row['close']),
         
-        # 趨勢
+        # 趋勢
         'ema9': float(ema9[idx]) if not pd.isna(ema9[idx]) else row['close'],
         'ema21': float(ema21[idx]) if not pd.isna(ema21[idx]) else row['close'],
         'ema50': float(ema50[idx]) if not pd.isna(ema50[idx]) else row['close'],
