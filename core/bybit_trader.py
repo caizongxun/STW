@@ -42,34 +42,23 @@ class BybitDemoTrader:
         self.max_leverage = max_leverage
         self.demo_mode = demo_mode
         
-        # 根據模式選擇 endpoint
-        if demo_mode == 'demo':
-            # Bybit Demo Trading
-            base_url = "https://api-demo.bybit.com"
-            testnet = False
-        elif demo_mode == 'testnet':
-            # Bybit Testnet
+        # 根據模式選擇 testnet 參數
+        # 注意：pybit 5.x 版本不支援自定義 endpoint
+        # Demo Trading 和 Mainnet 都使用 testnet=False
+        # 差別在於 API Key 的類型
+        if demo_mode == 'testnet':
             testnet = True
-            base_url = None
         else:
-            # Bybit Mainnet (真實盤)
+            # demo 和 mainnet 都使用 testnet=False
+            # API Key 本身決定了是 Demo 還是 Mainnet
             testnet = False
-            base_url = None
         
         # 初始化 Bybit HTTP 客戶端
-        if base_url:
-            self.session = HTTP(
-                testnet=testnet,
-                api_key=api_key,
-                api_secret=api_secret,
-                endpoint=base_url  # 使用自定義 endpoint
-            )
-        else:
-            self.session = HTTP(
-                testnet=testnet,
-                api_key=api_key,
-                api_secret=api_secret
-            )
+        self.session = HTTP(
+            testnet=testnet,
+            api_key=api_key,
+            api_secret=api_secret
+        )
         
         # 狀態追蹤
         self.current_position = None
