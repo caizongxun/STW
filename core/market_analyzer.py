@@ -12,11 +12,11 @@ from datetime import datetime
 class MarketAnalyzer:
     """市場數據分析器，提供給AI使用的市場特徵"""
     
-    def __init__(self, use_completed_candles_only: bool = True, lookback_bars: int = 5):
+    def __init__(self, use_completed_candles_only: bool = True, lookback_bars: int = 30):
         """
         Args:
             use_completed_candles_only: True 表示只使用已完成的K棒 (強烈建議)
-            lookback_bars: 回望K棒數量 (用於序列分析)
+            lookback_bars: 回望K棒數量 (用於序列分析) - 預設30根
         """
         self.use_completed_only = use_completed_candles_only
         self.lookback_bars = lookback_bars
@@ -30,7 +30,7 @@ class MarketAnalyzer:
             symbol: 交易對
         
         Returns:
-            包含當前K棒、序列、趨勢的字典
+            包含當前K棒、序列、趋勢的字典
         """
         # 如果設定只用已完成K棒，排除最後一根
         if self.use_completed_only and len(df) > 1:
@@ -48,7 +48,7 @@ class MarketAnalyzer:
         current_candle = df.iloc[current_idx]
         
         # 提取序列 (前n根K棒)
-        sequence_start = max(0, current_idx - self.lookback_bars)
+        sequence_start = max(0, current_idx - self.lookback_bars + 1)
         sequence_df = df.iloc[sequence_start:current_idx + 1]
         
         # 構建特徵字典
@@ -72,7 +72,7 @@ class MarketAnalyzer:
         low = df['low'].values
         volume = df['volume'].values
         
-        # 趨勢指標
+        # 趋勢指標
         df['ema9'] = talib.EMA(close, timeperiod=9)
         df['ema21'] = talib.EMA(close, timeperiod=21)
         df['ema50'] = talib.EMA(close, timeperiod=50)
@@ -137,24 +137,34 @@ class MarketAnalyzer:
         return features
     
     def _extract_sequence_features(self, sequence_df: pd.DataFrame) -> List[Dict]:
-        """提取K棒序列特徵"""
+        """提取K棒序列特徵 - 完整的OHLCV和指標"""
         sequence = []
+        total_bars = len(sequence_df)
         
-        for idx, row in sequence_df.iterrows():
+        for idx, (bar_idx, row) in enumerate(sequence_df.iterrows()):
             candle_data = {
-                'position': len(sequence) - len(sequence_df) + 1,  # -5, -4, -3, -2, -1, 0
-                'close': float(row['close']),
+                'position': idx - total_bars + 1,  # -29, -28, ..., -1, 0
+                'timestamp': str(row.get('timestamp', bar_idx)),
+                'open': round(float(row['open']), 2),
+                'high': round(float(row['high']), 2),
+                'low': round(float(row['low']), 2),
+                'close': round(float(row['close']), 2),
+                'volume': round(float(row['volume']), 2),
                 'rsi': round(float(row['rsi']), 2) if not pd.isna(row['rsi']) else None,
                 'volume_ratio': round(float(row['volume_ratio']), 2) if not pd.isna(row['volume_ratio']) else None,
-                'bb_position': round(float(row['bb_position']), 2) if not pd.isna(row['bb_position']) else None,
-                'macd_hist': round(float(row['macd_hist']), 4) if not pd.isna(row['macd_hist']) else None
+                'bb_position': round(float(row['bb_position']), 3) if not pd.isna(row['bb_position']) else None,
+                'macd_hist': round(float(row['macd_hist']), 4) if not pd.isna(row['macd_hist']) else None,
+                'adx': round(float(row['adx']), 2) if not pd.isna(row['adx']) else None,
+                'ema9': round(float(row['ema9']), 2) if not pd.isna(row['ema9']) else None,
+                'ema21': round(float(row['ema21']), 2) if not pd.isna(row['ema21']) else None,
+                'atr': round(float(row['atr']), 2) if not pd.isna(row['atr']) else None
             }
             sequence.append(candle_data)
         
         return sequence
     
     def _calculate_indicator_trends(self, sequence_df: pd.DataFrame) -> Dict:
-        """計算指標趨勢"""
+        """計算指標趋勢"""
         trends = {}
         key_indicators = ['rsi', 'macd_hist', 'volume_ratio', 'bb_position', 'adx']
         
@@ -181,7 +191,7 @@ class MarketAnalyzer:
             trends[indicator] = {
                 'trend': trend,
                 'slope': round(float(slope), 4),
-                'values': [round(float(v), 2) for v in values],
+                'values': [round(float(v), 2) for v in values[-10:]],  # 只顯示最後10根
                 'current': round(float(values[-1]), 2),
                 'change': round(float(values[-1] - values[0]), 2)
             }
@@ -199,7 +209,7 @@ class MarketAnalyzer:
         dist_from_high_pct = (high_20 - current_price) / current_price * 100
         dist_from_low_pct = (current_price - low_20) / current_price * 100
         
-        # 趨勢判斷
+        # 趋勢判斷
         ema50 = df.iloc[current_idx]['ema50']
         ema200 = df.iloc[current_idx]['ema200']
         
@@ -237,6 +247,7 @@ class MarketAnalyzer:
         current = features['current_candle']
         context = features['market_context']
         trends = features['indicator_trends']
+        sequence = features['recent_sequence']
         
         prompt = f"""Current Market State for {features['symbol']}
 Timestamp: {features['timestamp']}
@@ -254,17 +265,27 @@ Key Technical Indicators (Current Value):
 - Bollinger Position: {current.get('bb_position', 'N/A')}
 - Volume Ratio: {current.get('volume_ratio', 'N/A')}
 - ADX(14): {current.get('adx', 'N/A')}
+- ATR: ${current.get('atr', 'N/A')}
 
-Indicator Trends (Last {len(features['recent_sequence'])} Candles):
+Indicator Trends (Last {len(sequence)} Candles):
 """
         
         for indicator, trend_data in trends.items():
-            values_str = ' -> '.join([str(v) for v in trend_data['values']])
-            prompt += f"- {indicator.upper()}: {values_str} ({trend_data['trend']}, slope={trend_data['slope']})\n"
+            recent_values = ' -> '.join([str(v) for v in trend_data['values']])
+            prompt += f"- {indicator.upper()}: {recent_values} ({trend_data['trend']}, change={trend_data['change']:+.2f})\n"
         
-        prompt += f"\nRecent Price Sequence:\n"
-        for candle in features['recent_sequence']:
-            prompt += f"  Position {candle['position']}: Close=${candle['close']:,.2f}, RSI={candle['rsi']}, Volume={candle['volume_ratio']}x\n"
+        prompt += f"\nRecent {len(sequence)} Candle Sequence (OHLCV + Indicators):\n"
+        prompt += "Position | Open | High | Low | Close | Volume | RSI | BB_Pos | MACD_H | ADX\n"
+        prompt += "-" * 90 + "\n"
+        
+        for candle in sequence:
+            prompt += f"{candle['position']:>8} | "
+            prompt += f"{candle['open']:>7.2f} | {candle['high']:>7.2f} | {candle['low']:>7.2f} | {candle['close']:>7.2f} | "
+            prompt += f"{candle['volume_ratio'] or 0:>5.2f}x | "
+            prompt += f"{candle['rsi'] or 0:>5.1f} | {candle['bb_position'] or 0:>6.3f} | "
+            prompt += f"{candle['macd_hist'] or 0:>7.4f} | {candle['adx'] or 0:>5.1f}\n"
+        
+        prompt += "\nANALYZE: Review the entire sequence to identify patterns, reversals, momentum shifts, and volume confirmation.\n"
         
         return prompt
     
