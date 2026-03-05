@@ -109,7 +109,7 @@ class EnhancedDeepSeekAgent:
             
             case_indicators = entry_candle['indicators']
             
-            # 計算相似度（欧氏距離）
+            # 計算相似度（歐氏距離）
             score = 0
             weights = {
                 'rsi': 2.0,
@@ -213,16 +213,28 @@ class EnhancedDeepSeekAgent:
 3. 評估支撐/壓力位置是否合理
 4. 給出明確的交易計劃
 
-⚠️ CRITICAL: NEVER use null - ALWAYS use 0.0 for numeric fields
+⚠️ CRITICAL JSON FORMAT RULES:
+1. NEVER use null - ALWAYS use 0.0 for numeric fields
+2. NEVER write math expressions (like "65505.24 - 284.12") - ONLY final numeric values
+3. NEVER include comments inside JSON
+
+GOOD EXAMPLES:
+  "entry_price": 65505.24,
+  "stop_loss": 65221.12,
+  "take_profit": 66073.48
+
+BAD EXAMPLES (FORBIDDEN):
+  "stop_loss": 65505.24 - 284.12,  // Math expression - WRONG!
+  "entry_price": null,              // null - WRONG!
 
 必須以JSON格式回答：
 ```json
 {{
-  "signal": "LONG" | "SHORT" | "HOLD",
-  "confidence": 65,
-  "entry_price": 0.0,
-  "stop_loss": 0.0,
-  "take_profit": 0.0,
+  "signal": "LONG",
+  "confidence": 70,
+  "entry_price": 65505.24,
+  "stop_loss": 65221.12,
+  "take_profit": 66073.48,
   "reasoning": "簡潔說明決策理由與匹配的案例特徵",
   "key_risks": ["風險1", "風險2"]
 }}
@@ -232,6 +244,7 @@ class EnhancedDeepSeekAgent:
 - 只有當confidence > 70且與成功案例高度相似時才建議開倉
 - 止損必須基於ATR（當前ATR={current_market.get('atr', 0):.2f}）
 - 盈虧比至少1:2，最好1:3
+- REMEMBER: Calculate values FIRST, then write ONLY the final numbers in JSON
 """
         
         return prompt
@@ -256,6 +269,10 @@ class EnhancedDeepSeekAgent:
             json_str = json_str.replace(': null', ': 0.0')
             json_str = json_str.replace(':null', ': 0.0')
             json_str = re.sub(r'"(entry_price|stop_loss|take_profit)"\s*:\s*null', r'"\1": 0.0', json_str, flags=re.IGNORECASE)
+            
+            # ★★★ 移除計算式（最后手段）★★★
+            # 例如："stop_loss": 65505.24 - 284.12 → 直接移除，讓 JSON 解析失敗，進入容錯機制
+            json_str = re.sub(r'("\w+"\s*:\s*[\d.]+)\s*[-+*/]\s*[\d.]+', r'\1', json_str)
             
             decision = json.loads(json_str)
             
