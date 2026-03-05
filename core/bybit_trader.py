@@ -1,6 +1,7 @@
 """
 Bybit Demo Trading 自動交易引擎
 使用模擬資金 + 真實市場數據 + 真實滑點
+整合倉位感知 AI
 """
 import time
 from datetime import datetime
@@ -15,6 +16,7 @@ class BybitDemoTrader:
     - 使用 Demo Trading API (api-demo.bybit.com)
     - 模擬資金，但使用真實市場價格和滑點
     - 支援止損止盈
+    - 整合倉位感知 AI
     """
     
     def __init__(
@@ -23,7 +25,7 @@ class BybitDemoTrader:
         api_secret: str,
         demo_mode: str = 'demo',  # 'demo', 'testnet', or 'mainnet'
         symbol: str = 'BTCUSDT',
-        leverage: int = 1
+        max_leverage: int = 10
     ):
         """
         Args:
@@ -34,10 +36,10 @@ class BybitDemoTrader:
                 - 'testnet': Testnet (測試網)
                 - 'mainnet': Mainnet (真實盤)
             symbol: 交易對 (例如 BTCUSDT)
-            leverage: 槓杆倍數 (1-100)
+            max_leverage: 最大槓杆倍數 (1-100)
         """
         self.symbol = symbol
-        self.leverage = leverage
+        self.max_leverage = max_leverage
         self.demo_mode = demo_mode
         
         # 根據模式選擇 endpoint
@@ -69,32 +71,35 @@ class BybitDemoTrader:
                 api_secret=api_secret
             )
         
-        # 設置槓杆
-        self._set_leverage()
-        
         # 狀態追蹤
         self.current_position = None
+        self.current_leverage = 1
         self.open_orders = []
         self.trade_history = []
     
-    def _set_leverage(self):
-        """設置槓杆倍數"""
+    def set_leverage(self, leverage: int):
+        """設置槓框倍數"""
         try:
+            leverage = max(1, min(leverage, self.max_leverage))  # 限制範圍
+            
             result = self.session.set_leverage(
                 category="linear",
                 symbol=self.symbol,
-                buyLeverage=str(self.leverage),
-                sellLeverage=str(self.leverage)
+                buyLeverage=str(leverage),
+                sellLeverage=str(leverage)
             )
-            mode_name = {
-                'demo': 'Demo Trading',
-                'testnet': 'Testnet',
-                'mainnet': 'Mainnet'
-            }.get(self.demo_mode, 'Unknown')
             
-            print(f"[BYBIT-{mode_name.upper()}] 槓杆設置為 {self.leverage}x: {result['retMsg']}")
+            if result['retCode'] == 0:
+                self.current_leverage = leverage
+                print(f"[BYBIT] 槓框設置為 {leverage}x")
+                return True
+            else:
+                print(f"[BYBIT] 設置槓框失敗: {result['retMsg']}")
+                return False
+                
         except Exception as e:
-            print(f"[BYBIT] 設置槓杆失敗: {e}")
+            print(f"[BYBIT] 設置槓框失敗: {e}")
+            return False
     
     def get_balance(self) -> Dict:
         """
@@ -166,6 +171,7 @@ class BybitDemoTrader:
                         'unrealized_pnl': float(pos['unrealisedPnl']),
                         'leverage': int(pos['leverage'])
                     }
+                    self.current_leverage = int(pos['leverage'])
                     return self.current_position
             
             self.current_position = None
@@ -192,10 +198,27 @@ class BybitDemoTrader:
             print(f"[BYBIT] 獲取價格失敗: {e}")
             return 0.0
     
+    def get_account_info(self) -> Dict:
+        """
+        獲取帳戶資訊 (供 AI使用)
+        
+        Returns:
+            {
+                'total_equity': float,
+                'available_balance': float,
+                'unrealized_pnl': float,
+                'max_leverage': int
+            }
+        """
+        balance = self.get_balance()
+        balance['max_leverage'] = self.max_leverage
+        return balance
+    
     def place_market_order(
         self,
         side: str,
         quantity: float,
+        leverage: Optional[int] = None,
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None
     ) -> Dict:
@@ -205,6 +228,7 @@ class BybitDemoTrader:
         Args:
             side: 'Buy' 或 'Sell'
             quantity: 下單數量 (張數)
+            leverage: 槓框倍數 (可選)
             stop_loss: 止損價
             take_profit: 止盈價
         
@@ -216,7 +240,11 @@ class BybitDemoTrader:
             }
         """
         try:
-            # 1. 下市價單
+            # 1. 設置槓框（如果指定）
+            if leverage and leverage != self.current_leverage:
+                self.set_leverage(leverage)
+            
+            # 2. 下市價單
             result = self.session.place_order(
                 category="linear",
                 symbol=self.symbol,
@@ -235,18 +263,19 @@ class BybitDemoTrader:
             
             order_id = result['result']['orderId']
             
-            # 2. 等待成交
+            # 3. 等待成交
             time.sleep(1)
             
-            # 3. 設置止損止盈
+            # 4. 設置止損止盈
             if stop_loss or take_profit:
                 self._set_stop_loss_take_profit(side, stop_loss, take_profit)
             
-            # 4. 記錄交易
+            # 5. 記錄交易
             self.trade_history.append({
                 'time': datetime.now().isoformat(),
                 'side': side,
                 'quantity': quantity,
+                'leverage': self.current_leverage,
                 'order_id': order_id,
                 'stop_loss': stop_loss,
                 'take_profit': take_profit
@@ -255,7 +284,7 @@ class BybitDemoTrader:
             return {
                 'success': True,
                 'order_id': order_id,
-                'message': f'{side} {quantity} @ Market'
+                'message': f'{side} {quantity} @ Market ({self.current_leverage}x)'
             }
             
         except Exception as e:
@@ -295,9 +324,12 @@ class BybitDemoTrader:
         except Exception as e:
             print(f"[BYBIT] 設置止損止盈失敗: {e}")
     
-    def close_position(self) -> Dict:
+    def close_position(self, size: Optional[float] = None) -> Dict:
         """
         平倉當前持倉
+        
+        Args:
+            size: 平倉數量 (可選，預設全部平倉)
         
         Returns:
             {
@@ -310,18 +342,21 @@ class BybitDemoTrader:
         if not position:
             return {'success': False, 'message': '沒有持倉'}
         
+        # 決定平倉數量
+        close_size = size if size else position['size']
+        
         # 反向下單平倉
         close_side = 'Sell' if position['side'] == 'Buy' else 'Buy'
         
         result = self.place_market_order(
             side=close_side,
-            quantity=position['size']
+            quantity=close_size
         )
         
         if result['success']:
             return {
                 'success': True,
-                'message': f"平倉成功: {position['side']} {position['size']} @ Market"
+                'message': f"平倉成功: {position['side']} {close_size} @ Market"
             }
         else:
             return {
@@ -329,99 +364,140 @@ class BybitDemoTrader:
                 'message': f"平倉失敗: {result['message']}"
             }
     
-    def execute_ai_signal(
+    def execute_ai_decision(
         self,
-        signal: Dict,
-        position_size_usdt: float = 100.0
+        decision: Dict,
+        market_data: Dict
     ) -> Dict:
         """
-        執行 AI 交易訊號
+        執行 AI 決策 (支援完整的 action 類型)
         
         Args:
-            signal: AI 決策
+            decision: AI 決策
                 {
-                    'signal': 'LONG'/'SHORT'/'HOLD',
-                    'confidence': 70,
+                    'action': 'OPEN_LONG'/'OPEN_SHORT'/'CLOSE'/'ADD_POSITION'/'REDUCE_POSITION'/'HOLD',
+                    'confidence': 75,
+                    'leverage': 2,
+                    'position_size_usdt': 200.0,
                     'entry_price': 65505.24,
                     'stop_loss': 65221.12,
-                    'take_profit': 66073.48,
-                    'position_size_pct': 30
+                    'take_profit': 66073.48
                 }
-            position_size_usdt: 每次下單金額 (USDT)
+            
+            market_data: 市場數據 (用於計算下單數量)
         
         Returns:
             {
-                'action': 'OPEN_LONG'/'OPEN_SHORT'/'CLOSE'/'HOLD',
+                'action': str,
                 'success': bool,
                 'message': str
             }
         """
-        # 1. 獲取當前持倉
-        current_position = self.get_position()
+        action = decision.get('action', 'HOLD')
         
-        # 2. 如果有持倉，檢查是否需要平倉
-        if current_position:
-            # 方向相反，先平倉
-            if (current_position['side'] == 'Buy' and signal['signal'] == 'SHORT') or \
-               (current_position['side'] == 'Sell' and signal['signal'] == 'LONG'):
+        # 1. HOLD - 不操作
+        if action == 'HOLD':
+            return {
+                'action': 'HOLD',
+                'success': True,
+                'message': 'AI 建議觀望，不操作'
+            }
+        
+        # 2. CLOSE - 平倉
+        elif action == 'CLOSE':
+            return self.close_position()
+        
+        # 3. REDUCE_POSITION - 減倉 (50%)
+        elif action == 'REDUCE_POSITION':
+            position = self.get_position()
+            if position:
+                reduce_size = position['size'] * 0.5
+                result = self.close_position(size=reduce_size)
+                result['action'] = 'REDUCE_POSITION'
+                return result
+            else:
+                return {'action': 'REDUCE_POSITION', 'success': False, 'message': '無持倉可減'}
+        
+        # 4. ADD_POSITION - 加倉
+        elif action == 'ADD_POSITION':
+            position = self.get_position()
+            if position:
+                # 加倉金額為原倉位的 50%
+                current_position_value = position['size'] * position['entry_price']
+                add_size_usdt = current_position_value * 0.5
+                
+                current_price = market_data.get('close', self.get_current_price())
+                add_quantity = add_size_usdt / current_price
+                
+                result = self.place_market_order(
+                    side=position['side'],
+                    quantity=round(add_quantity, 3),
+                    leverage=decision.get('leverage', self.current_leverage),
+                    stop_loss=decision.get('stop_loss'),
+                    take_profit=decision.get('take_profit')
+                )
+                result['action'] = 'ADD_POSITION'
+                return result
+            else:
+                return {'action': 'ADD_POSITION', 'success': False, 'message': '無持倉可加'}
+        
+        # 5. OPEN_LONG - 開多
+        elif action == 'OPEN_LONG':
+            # 先檢查是否有反向持倉
+            position = self.get_position()
+            if position and position['side'] == 'Sell':
+                # 先平空單
                 close_result = self.close_position()
                 if not close_result['success']:
-                    return {
-                        'action': 'CLOSE',
-                        'success': False,
-                        'message': close_result['message']
-                    }
+                    return close_result
+                time.sleep(1)
             
-            # 已有持倉且方向相同，不再開新倉
-            elif (current_position['side'] == 'Buy' and signal['signal'] == 'LONG') or \
-                 (current_position['side'] == 'Sell' and signal['signal'] == 'SHORT'):
-                return {
-                    'action': 'HOLD',
-                    'success': True,
-                    'message': f"已有 {current_position['side']} 持倉，不重複開倉"
-                }
-        
-        # 3. 沒有持倉，根據 AI 訊號開倉
-        if signal['signal'] == 'LONG':
-            # 計算下單數量 (張數)
-            current_price = self.get_current_price()
+            # 計算下單數量
+            current_price = market_data.get('close', self.get_current_price())
+            position_size_usdt = decision.get('position_size_usdt', 100.0)
             quantity = position_size_usdt / current_price
             
             result = self.place_market_order(
                 side='Buy',
                 quantity=round(quantity, 3),
-                stop_loss=signal.get('stop_loss'),
-                take_profit=signal.get('take_profit')
+                leverage=decision.get('leverage', 1),
+                stop_loss=decision.get('stop_loss'),
+                take_profit=decision.get('take_profit')
             )
-            
-            return {
-                'action': 'OPEN_LONG',
-                'success': result['success'],
-                'message': result['message']
-            }
+            result['action'] = 'OPEN_LONG'
+            return result
         
-        elif signal['signal'] == 'SHORT':
-            current_price = self.get_current_price()
+        # 6. OPEN_SHORT - 開空
+        elif action == 'OPEN_SHORT':
+            # 先檢查是否有反向持倉
+            position = self.get_position()
+            if position and position['side'] == 'Buy':
+                # 先平多單
+                close_result = self.close_position()
+                if not close_result['success']:
+                    return close_result
+                time.sleep(1)
+            
+            # 計算下單數量
+            current_price = market_data.get('close', self.get_current_price())
+            position_size_usdt = decision.get('position_size_usdt', 100.0)
             quantity = position_size_usdt / current_price
             
             result = self.place_market_order(
                 side='Sell',
                 quantity=round(quantity, 3),
-                stop_loss=signal.get('stop_loss'),
-                take_profit=signal.get('take_profit')
+                leverage=decision.get('leverage', 1),
+                stop_loss=decision.get('stop_loss'),
+                take_profit=decision.get('take_profit')
             )
-            
-            return {
-                'action': 'OPEN_SHORT',
-                'success': result['success'],
-                'message': result['message']
-            }
+            result['action'] = 'OPEN_SHORT'
+            return result
         
-        else:  # HOLD
+        else:
             return {
-                'action': 'HOLD',
-                'success': True,
-                'message': 'AI 建議觀望，不操作'
+                'action': action,
+                'success': False,
+                'message': f'不支援的 action: {action}'
             }
     
     def get_trade_history_df(self) -> pd.DataFrame:
@@ -446,5 +522,6 @@ class BybitDemoTrader:
             'balance': balance,
             'position': position,
             'total_trades': len(self.trade_history),
-            'mode': mode_name
+            'mode': mode_name,
+            'current_leverage': self.current_leverage
         }
