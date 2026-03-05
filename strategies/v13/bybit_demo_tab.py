@@ -1,6 +1,6 @@
 """
-Bybit Demo 自動交易 UI
-整合 V13 AI + Bybit Testnet
+Bybit 自動交易 UI
+支援 Demo Trading / Testnet / Mainnet
 """
 import streamlit as st
 import time
@@ -14,16 +14,46 @@ from strategies.v13 import prepare_market_features
 
 
 def render_bybit_demo_tab():
-    """渲染 Bybit Demo 交易頁面"""
-    st.subheader("[BYBIT DEMO] 模擬自動交易")
+    """渲染 Bybit 交易頁面"""
+    st.subheader("[BYBIT] 自動交易")
     
-    st.info("""
-    **功能說明**：
-    - 使用 Bybit Testnet (模擬資金)
-    - 真實市場數據 + AI 決策
-    - 自動下單、止損、止盈
-    - 完全安全，不會损失真實資金
-    """)
+    # === 模式選擇 ===
+    mode = st.radio(
+        "選擇交易模式",
+        ['demo', 'testnet', 'mainnet'],
+        format_func=lambda x: {
+            'demo': '[DEMO] Demo Trading - 真實市場模擬 (推薦)',
+            'testnet': '[TEST] Testnet - 測試網 (內部價格)',
+            'mainnet': '[LIVE] Mainnet - 真實盤 (危險)'
+        }[x],
+        horizontal=True
+    )
+    
+    # 模式說明
+    if mode == 'demo':
+        st.success("""
+        **[DEMO] Demo Trading**
+        - 使用**真實市場價格**和滑點
+        - 模擬資金，不會影響真實資產
+        - 適合策略驗證和實戰測試
+        - API Endpoint: `api-demo.bybit.com`
+        """)
+    elif mode == 'testnet':
+        st.info("""
+        **[TEST] Testnet**
+        - 使用**內部模擬價格**
+        - 適合開發測試，不適合策略驗證
+        - API Endpoint: `api-testnet.bybit.com`
+        """)
+    else:
+        st.error("""
+        **[LIVE] Mainnet - 真實盤**
+        - 使用真實資金，會實際交易
+        - 建議先在 Demo Trading 測試 2-4 週
+        - 確認策略勝率 > 60% 再使用
+        """)
+    
+    st.divider()
     
     # === 設定區 ===
     with st.expander("[SETUP] API 設定", expanded=True):
@@ -31,9 +61,13 @@ def render_bybit_demo_tab():
         
         with col1:
             api_key = st.text_input(
-                "Bybit Testnet API Key",
+                f"Bybit {mode.upper()} API Key",
                 type="password",
-                help="在 testnet.bybit.com 申請"
+                help={
+                    'demo': "在 bybit.com 申請 (API Management > Demo Trading)",
+                    'testnet': "在 testnet.bybit.com 申請",
+                    'mainnet': "在 bybit.com 申請 (真實盤)"
+                }[mode]
             )
             
             symbol = st.selectbox(
@@ -43,7 +77,7 @@ def render_bybit_demo_tab():
         
         with col2:
             api_secret = st.text_input(
-                "Bybit Testnet API Secret",
+                f"Bybit {mode.upper()} API Secret",
                 type="password"
             )
             
@@ -77,12 +111,12 @@ def render_bybit_demo_tab():
             if not api_key or not api_secret:
                 st.error("[ERROR] 請先輸入 API Key 和 Secret")
             else:
-                with st.spinner("正在連線 Bybit Testnet..."):
+                with st.spinner(f"正在連線 Bybit {mode.upper()}..."):
                     try:
                         trader = BybitDemoTrader(
                             api_key=api_key,
                             api_secret=api_secret,
-                            testnet=True,
+                            demo_mode=mode,
                             symbol=symbol,
                             leverage=leverage
                         )
@@ -90,10 +124,16 @@ def render_bybit_demo_tab():
                         balance = trader.get_balance()
                         
                         if balance['total_equity'] > 0:
-                            st.success(f"[OK] 連線成功! 餘額: ${balance['total_equity']:,.2f} USDT")
+                            mode_name = trader.get_account_summary()['mode']
+                            st.success(f"[OK] {mode_name} 連線成功! 餘額: ${balance['total_equity']:,.2f} USDT")
                             st.session_state['bybit_trader'] = trader
                         else:
-                            st.warning("[WARNING] 連線成功但餘額為 0，請到 testnet.bybit.com 領取模擬資金")
+                            if mode == 'demo':
+                                st.warning("[WARNING] 連線成功但餘額為 0，請到 bybit.com > Assets > Demo Trading 領取模擬資金")
+                            elif mode == 'testnet':
+                                st.warning("[WARNING] 連線成功但餘額為 0，請到 testnet.bybit.com 領取模擬資金")
+                            else:
+                                st.error("[ERROR] 餘額不足，請充值")
                             
                     except Exception as e:
                         st.error(f"[ERROR] 連線失敗: {e}")
@@ -112,11 +152,27 @@ def render_bybit_demo_tab():
     if start_btn:
         if not api_key or not api_secret:
             st.error("[ERROR] 請先輸入 API Key 和 Secret")
+        elif mode == 'mainnet':
+            # 真實盤需要確認
+            st.error("[WARNING] 你正在啟動真實盤交易！請確認你已充分測試策略。")
+            if st.checkbox("我了解風險，確認啟動真實盤交易"):
+                st.session_state['bybit_running'] = True
+                st.session_state['bybit_config'] = {
+                    'api_key': api_key,
+                    'api_secret': api_secret,
+                    'demo_mode': mode,
+                    'symbol': symbol,
+                    'leverage': leverage,
+                    'position_size': position_size,
+                    'update_interval': update_interval,
+                    'ai_confidence_min': ai_confidence_min
+                }
         else:
             st.session_state['bybit_running'] = True
             st.session_state['bybit_config'] = {
                 'api_key': api_key,
                 'api_secret': api_secret,
+                'demo_mode': mode,
                 'symbol': symbol,
                 'leverage': leverage,
                 'position_size': position_size,
@@ -133,7 +189,7 @@ def render_bybit_demo_tab():
             trader = BybitDemoTrader(
                 api_key=config['api_key'],
                 api_secret=config['api_secret'],
-                testnet=True,
+                demo_mode=config['demo_mode'],
                 symbol=config['symbol'],
                 leverage=config['leverage']
             )
@@ -235,10 +291,12 @@ def render_bybit_demo_tab():
 
 def render_account_info(trader: BybitDemoTrader):
     """顯示帳戶資訊"""
-    st.markdown("### [ACCOUNT] 帳戶資訊")
+    summary = trader.get_account_summary()
     
-    balance = trader.get_balance()
-    position = trader.get_position()
+    st.markdown(f"### [ACCOUNT] 帳戶資訊 - {summary['mode']}")
+    
+    balance = summary['balance']
+    position = summary['position']
     
     col1, col2, col3, col4 = st.columns(4)
     
