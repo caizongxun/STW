@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Dict, Optional, List
 from pybit.unified_trading import HTTP
 import pandas as pd
-import json
 
 
 class BybitDemoTrader:
@@ -43,18 +42,29 @@ class BybitDemoTrader:
         self.max_leverage = max_leverage
         self.demo_mode = demo_mode
         
-        # 根據模式選擇 testnet 參數
-        if demo_mode == 'testnet':
-            testnet = True
-        else:
+        # 根據模式選擇參數
+        if demo_mode == 'demo':
+            # Demo Trading: testnet=False, demo=True
             testnet = False
+            demo = True
+        elif demo_mode == 'testnet':
+            # Testnet: testnet=True, demo=False
+            testnet = True
+            demo = False
+        else:
+            # Mainnet: testnet=False, demo=False
+            testnet = False
+            demo = False
         
         # 初始化 Bybit HTTP 客戶端
         self.session = HTTP(
             testnet=testnet,
+            demo=demo,
             api_key=api_key,
             api_secret=api_secret
         )
+        
+        print(f"[BYBIT] 初始化: testnet={testnet}, demo={demo}")
         
         # 狀態追蹤
         self.current_position = None
@@ -88,7 +98,7 @@ class BybitDemoTrader:
     
     def get_balance(self) -> Dict:
         """
-        獲取帳戶餘額 (嘗試多種帳戶類型)
+        獲取帳戶餘額
         
         Returns:
             {
@@ -97,82 +107,32 @@ class BybitDemoTrader:
                 'unrealized_pnl': float
             }
         """
-        print("\n[DEBUG] ========== 開始讀取餘額 ==========")
-        
-        # 1. 嘗試 UNIFIED 帳戶
-        print("[DEBUG] 嘗試讀取 UNIFIED 帳戶...")
         try:
+            # 嘗試 UNIFIED 帳戶
             result = self.session.get_wallet_balance(
                 accountType="UNIFIED",
                 coin="USDT"
             )
             
-            print(f"[DEBUG] UNIFIED API 返回: {json.dumps(result, indent=2, ensure_ascii=False)}")
-            
             if result['retCode'] == 0 and result['result']['list']:
                 account_info = result['result']['list'][0]
-                print(f"[DEBUG] UNIFIED 帳戶資訊: {json.dumps(account_info, indent=2, ensure_ascii=False)}")
-                
                 usdt_info = next(
                     (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
                     None
                 )
                 
                 if usdt_info:
-                    equity = float(usdt_info['equity'])
-                    print(f"[DEBUG] UNIFIED USDT 餘額: {equity}")
-                    
-                    if equity > 0:
-                        print("[DEBUG] ✅ UNIFIED 帳戶有餘額,使用此帳戶")
-                        return {
-                            'total_equity': equity,
-                            'available_balance': float(usdt_info['availableToWithdraw']),
-                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
-                        }
-                    else:
-                        print("[DEBUG] ⚠️ UNIFIED 帳戶餘額為 0,嘗試 CONTRACT")
-        except Exception as e:
-            print(f"[DEBUG] ❌ UNIFIED 讀取失敗: {e}")
-        
-        # 2. 嘗試 CONTRACT 帳戶
-        print("\n[DEBUG] 嘗試讀取 CONTRACT 帳戶...")
-        try:
-            result = self.session.get_wallet_balance(
-                accountType="CONTRACT",
-                coin="USDT"
-            )
+                    return {
+                        'total_equity': float(usdt_info['equity']),
+                        'available_balance': float(usdt_info['availableToWithdraw']),
+                        'unrealized_pnl': float(usdt_info['unrealisedPnl'])
+                    }
             
-            print(f"[DEBUG] CONTRACT API 返回: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
             
-            if result['retCode'] == 0 and result['result']['list']:
-                account_info = result['result']['list'][0]
-                print(f"[DEBUG] CONTRACT 帳戶資訊: {json.dumps(account_info, indent=2, ensure_ascii=False)}")
-                
-                usdt_info = next(
-                    (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
-                    None
-                )
-                
-                if usdt_info:
-                    equity = float(usdt_info['equity'])
-                    print(f"[DEBUG] CONTRACT USDT 餘額: {equity}")
-                    
-                    if equity > 0:
-                        print("[DEBUG] ✅ CONTRACT 帳戶有餘額,使用此帳戶")
-                        return {
-                            'total_equity': equity,
-                            'available_balance': float(usdt_info['availableToWithdraw']),
-                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
-                        }
-                    else:
-                        print("[DEBUG] ⚠️ CONTRACT 帳戶餘額也為 0")
         except Exception as e:
-            print(f"[DEBUG] ❌ CONTRACT 讀取失敗: {e}")
-        
-        print("[DEBUG] ❌ 所有帳戶類型都無法讀取餘額")
-        print("[DEBUG] ========================================\n")
-        
-        return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
+            print(f"[BYBIT] 獲取餘額失敗: {e}")
+            return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
     
     def get_position(self) -> Optional[Dict]:
         """獲取當前持倉"""
