@@ -52,7 +52,7 @@ def main():
 
     # 底部資訊
     st.divider()
-    st.caption("風險警告：加密貨幣交易具有高風險，請勿投入超過您可承受的損失金額。")
+    st.caption("")
 
 if __name__ == "__main__":
     main()
