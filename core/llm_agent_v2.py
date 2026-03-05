@@ -3,6 +3,7 @@ V2 增強版 DeepSeek-R1 交易引擎
 整合倉位管理、新聞分析、K棒序列比對
 """
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from langchain_ollama import OllamaLLM
@@ -312,42 +313,45 @@ Respond in JSON format:
         return prompt
     
     def _parse_response(self, response: str) -> Dict:
-        """Parse DeepSeek JSON response"""
+        """Parse DeepSeek JSON response with null handling"""
         try:
-            if '```json' in response:
-                json_start = response.find('```json') + 7
-                json_end = response.find('```', json_start)
-                json_str = response[json_start:json_end].strip()
-            elif '```' in response:
-                json_start = response.find('```') + 3
-                json_end = response.find('```', json_start)
-                json_str = response[json_start:json_end].strip()
+            # 步驟1: 多重 null 替換
+            response = re.sub(r'\s+', ' ', response)
+            response = re.sub(r'\bnull\b', '0.0', response, flags=re.IGNORECASE)
+            response = re.sub(r':\s*null', ': 0.0', response, flags=re.IGNORECASE)
+            response = response.replace('null', '0.0')
+            
+            # 步驟2: 提取JSON
+            json_match = re.search(r'\{[\s\S]*?\}', response)
+            if json_match:
+                json_str = json_match.group(0)
             else:
                 json_str = response.strip()
             
+            # 步驟3: 解析
             decision = json.loads(json_str)
             
-            # Validate required fields
-            required_fields = ['signal', 'entry_price', 'stop_loss', 'take_profit', 'confidence']
-            for field in required_fields:
-                if field not in decision:
-                    raise ValueError(f"Missing required field: {field}")
+            # 步驟4: 安全轉型
+            for field in ['confidence', 'entry_price', 'stop_loss', 'take_profit']:
+                val = decision.get(field)
+                decision[field] = float(val) if val is not None else 0.0
             
-            # Standardize signal
-            decision['signal'] = decision['signal'].upper()
+            decision['signal'] = decision.get('signal', 'HOLD').upper()
             if decision['signal'] not in ['LONG', 'SHORT', 'HOLD']:
                 decision['signal'] = 'HOLD'
-            
-            # Ensure numeric types
-            decision['confidence'] = int(decision['confidence'])
-            decision['entry_price'] = float(decision['entry_price'])
-            decision['stop_loss'] = float(decision['stop_loss'])
-            decision['take_profit'] = float(decision['take_profit'])
             
             return decision
             
         except Exception as e:
-            raise ValueError(f"JSON parsing failed: {str(e)}\n\nRaw output:\n{response[:500]}")
+            return {
+                'signal': 'HOLD',
+                'confidence': 0.0,
+                'entry_price': 0.0,
+                'stop_loss': 0.0,
+                'take_profit': 0.0,
+                'reasoning': f'JSON解析失敗: {str(e)}',
+                'error': str(e)
+            }
     
     def reload_cases(self):
         """Reload learning cases (after adding new ones)"""
