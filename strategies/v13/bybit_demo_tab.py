@@ -7,6 +7,8 @@ import streamlit as st
 import time
 from datetime import datetime
 import traceback
+import sys
+import io
 
 from core.bybit_trader import BybitDemoTrader
 from core.data_loader import DataLoader
@@ -94,7 +96,7 @@ def render_bybit_demo_tab():
             )
             
             max_leverage = st.slider(
-                "最大槓杆倍數",
+                "最大槓框倍數",
                 1, 10, 5,
                 help="AI 會根據市場情況動態調整，不超過此值",
                 key='bybit_max_leverage'
@@ -122,6 +124,11 @@ def render_bybit_demo_tab():
                 st.error("[ERROR] 請先輸入 API Key 和 Secret")
             else:
                 with st.spinner(f"正在連線 Bybit {mode.upper()}..."):
+                    # 捕捉 print 輸出
+                    debug_output = io.StringIO()
+                    old_stdout = sys.stdout
+                    sys.stdout = debug_output
+                    
                     try:
                         trader = BybitDemoTrader(
                             api_key=api_key,
@@ -132,6 +139,15 @@ def render_bybit_demo_tab():
                         )
                         
                         balance = trader.get_balance()
+                        
+                        # 恢復 stdout
+                        sys.stdout = old_stdout
+                        debug_text = debug_output.getvalue()
+                        
+                        # 顯示 debug 輸出
+                        if debug_text:
+                            with st.expander("[DEBUG] 詳細訊息"):
+                                st.code(debug_text, language="text")
                         
                         if balance['total_equity'] > 0:
                             mode_name = trader.get_account_summary()['mode']
@@ -146,6 +162,13 @@ def render_bybit_demo_tab():
                                 st.error("[ERROR] 餘額不足，請充值")
                             
                     except Exception as e:
+                        sys.stdout = old_stdout
+                        debug_text = debug_output.getvalue()
+                        
+                        if debug_text:
+                            with st.expander("[DEBUG] 詳細訊息"):
+                                st.code(debug_text, language="text")
+                        
                         st.error(f"[ERROR] 連線失敗: {e}")
                         st.code(traceback.format_exc())
     
@@ -163,7 +186,6 @@ def render_bybit_demo_tab():
         if not api_key or not api_secret:
             st.error("[ERROR] 請先輸入 API Key 和 Secret")
         elif mode == 'mainnet':
-            # 真實盤需要確認
             st.error("[WARNING] 你正在啟動真實盤交易！請確認你已充分測試策略。")
             if st.checkbox("我了解風險，確認啟動真實盤交易", key='bybit_mainnet_confirm'):
                 st.session_state['bybit_running'] = True
@@ -372,7 +394,7 @@ def render_trade_history(trader: BybitDemoTrader):
                 'time', 'side', 'quantity', 'leverage',
                 'stop_loss', 'take_profit', 'order_id'
             ]].tail(20),
-            use_container_width=True
+            width='stretch'
         )
     else:
         st.info("尚無交易記錄")
