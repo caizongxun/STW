@@ -164,21 +164,23 @@ class AutoTrader:
         self.running = True
         iteration = 0
         
-        print(f"🚀 自動交易引擎啟動")
+        news_status = '[ON] 啟用' if self.enable_news else '[OFF] 關閉'
+        
+        print(f"[AUTO-TRADER] 自動交易引擎啟動")
         print(f"   幣種: {self.symbol}")
         print(f"   時間框架: {self.timeframe}")
         print(f"   更新間隔: {interval_minutes} 分鐘")
-        print(f"   新聞整合: {'\u2705 啟用' if self.enable_news else '\u274c 關閉'}")
+        print(f"   新聞整合: {news_status}")
         print("\n" + "="*60 + "\n")
         
         while self.running:
             if max_iterations and iteration >= max_iterations:
-                print(f"✅ 達到最大迭代次數 ({max_iterations})，停止")
+                print(f"[DONE] 達到最大迭代次數 ({max_iterations})，停止")
                 break
             
             if self.should_update(interval_minutes):
                 iteration += 1
-                print(f"🔄 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 第 {iteration} 次更新")
+                print(f"[UPDATE] [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 第 {iteration} 次更新")
                 
                 # 獲取訊號
                 signal = self.get_latest_signal()
@@ -192,29 +194,29 @@ class AutoTrader:
                 
                 # 如果有錯誤，顯示但繼續執行
                 if 'error' in signal:
-                    print(f"   ⚠️ 錯誤: {signal['error']}\n")
+                    print(f"   [WARNING] 錯誤: {signal['error']}\n")
                 
                 print("\n" + "-"*60 + "\n")
             
             # 等待 1 分鐘後再檢查
             time.sleep(60)
         
-        print("✅ 自動交易引擎已停止")
+        print("[DONE] 自動交易引擎已停止")
     
     def _display_signal(self, signal: Dict):
         """顯示訊號詳細資訊"""
-        print(f"   📊 訊號: {signal['signal']}")
-        print(f"   🎯 信心度: {signal['confidence']}%")
-        print(f"   💰 進場價: ${signal.get('entry_price', 0):,.2f}")
-        print(f"   🛡️ 止損: ${signal.get('stop_loss', 0):,.2f}")
-        print(f"   🎯 止盈: ${signal.get('take_profit', 0):,.2f}")
-        print(f"   📈 倉位: {signal.get('position_size_pct', 0):.1f}%")
+        print(f"   [SIGNAL] {signal['signal']}")
+        print(f"   [CONFIDENCE] {signal['confidence']}%")
+        print(f"   [ENTRY] ${signal.get('entry_price', 0):,.2f}")
+        print(f"   [STOP-LOSS] ${signal.get('stop_loss', 0):,.2f}")
+        print(f"   [TAKE-PROFIT] ${signal.get('take_profit', 0):,.2f}")
+        print(f"   [POSITION] {signal.get('position_size_pct', 0):.1f}%")
         
         if signal.get('news_summary'):
-            print(f"   📰 新聞: {signal['news_summary']}")
+            print(f"   [NEWS] {signal['news_summary']}")
         
         if signal.get('matched_cases'):
-            print(f"   📚 匹配案例: {len(signal['matched_cases'])} 個")
+            print(f"   [CASES] {len(signal['matched_cases'])} 個匹配案例")
     
     def stop(self):
         """停止自動更新"""
@@ -242,39 +244,39 @@ class AutoTrader:
 
 def render_auto_trader_ui():
     """
-Streamlit UI 渲染函數
+    Streamlit UI 渲染函數
     """
-    st.subheader("⏱️ 自動交易引擎")
+    st.subheader("[AUTO] 自動交易引擎")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
         symbol = st.selectbox(
-            "💰 交易對",
+            "[SYMBOL] 交易對",
             ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']
         )
         
         interval = st.selectbox(
-            "⏰ 更新間隔",
+            "[INTERVAL] 更新間隔",
             [('15 分鐘', 15), ('30 分鐘', 30), ('1 小時', 60)],
             format_func=lambda x: x[0]
         )[1]
         
         enable_news = st.checkbox(
-            "📰 啟用新聞分析",
+            "[NEWS] 啟用新聞分析",
             value=True,
             help="整合 CryptoPanic API 的新聞情緒分析"
         )
     
     with col2:
-        if st.button("🚀 啟動自動更新", type="primary"):
+        if st.button("[START] 啟動自動更新", type="primary"):
             st.session_state['auto_trader'] = AutoTrader(
                 symbol=symbol,
                 enable_news=enable_news
             )
             st.session_state['auto_running'] = True
         
-        if st.button("⏸️ 停止更新", type="secondary"):
+        if st.button("[STOP] 停止更新", type="secondary"):
             if 'auto_trader' in st.session_state:
                 st.session_state['auto_trader'].stop()
                 st.session_state['auto_running'] = False
@@ -295,11 +297,11 @@ Streamlit UI 渲染函數
                 trader.last_update = datetime.now()
                 
                 with placeholder.container():
-                    st.success(f"✅ 最新更新: {datetime.now().strftime('%H:%M:%S')}")
+                    st.success(f"[OK] 最新更新: {datetime.now().strftime('%H:%M:%S')}")
                     
                     # 顯示訊號
                     if signal.get('error'):
-                        st.error(f"⚠️ {signal['error']}")
+                        st.error(f"[ERROR] {signal['error']}")
                     else:
                         col_s1, col_s2, col_s3 = st.columns(3)
                         col_s1.metric("訊號", signal['signal'])
@@ -307,10 +309,10 @@ Streamlit UI 渲染函數
                         col_s3.metric("倉位", f"{signal.get('position_size_pct', 0):.1f}%")
                         
                         if signal.get('news_summary'):
-                            st.info(f"📰 {signal['news_summary']}")
+                            st.info(f"[NEWS] {signal['news_summary']}")
                     
                     # 歷史訊號
-                    st.markdown("### 📊 歷史記錄")
+                    st.markdown("### [HISTORY] 歷史記錄")
                     history_df = trader.get_history_summary()
                     if not history_df.empty:
                         st.dataframe(history_df.tail(10), use_container_width=True)
@@ -318,11 +320,11 @@ Streamlit UI 渲染函數
             time.sleep(10)  # 每 10 秒檢查一次
     
     elif 'auto_trader' in st.session_state:
-        st.info("⏸️ 自動更新已停止")
+        st.info("[PAUSED] 自動更新已停止")
         
         # 顯示歷史
         trader = st.session_state['auto_trader']
         history_df = trader.get_history_summary()
         if not history_df.empty:
-            st.markdown("### 📊 歷史記錄")
+            st.markdown("### [HISTORY] 歷史記錄")
             st.dataframe(history_df, use_container_width=True)
