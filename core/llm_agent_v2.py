@@ -70,6 +70,58 @@ class EnhancedDeepSeekAgentV2:
             print(f"Failed to load cases: {e}")
             return []
     
+    def _calculate_position_size(self, decision: Dict) -> float:
+        """
+        根據信心度與盈虧比計算建議倉位
+        
+        Args:
+            decision: AI決策字典
+        
+        Returns:
+            建議倉位百分比 (0-20%)
+        """
+        signal = decision.get('signal', 'HOLD')
+        confidence = decision.get('confidence', 0)
+        entry = decision.get('entry_price', 0)
+        sl = decision.get('stop_loss', 0)
+        tp = decision.get('take_profit', 0)
+        
+        # HOLD或信心不足
+        if signal == 'HOLD' or confidence < 70:
+            return 0.0
+        
+        # 計算盈虧比
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
+        rr_ratio = reward / risk if risk > 0 else 0
+        
+        # 盈虧比不足 1:1.5
+        if rr_ratio < 1.5:
+            return 0.0
+        
+        # 根據信心度分級
+        if confidence >= 85:
+            base_size = 20.0
+        elif confidence >= 80:
+            base_size = 15.0
+        elif confidence >= 75:
+            base_size = 10.0
+        elif confidence >= 70:
+            base_size = 5.0
+        else:
+            base_size = 0.0
+        
+        # 根據盈虧比調整
+        if rr_ratio >= 3.0:
+            multiplier = 1.2
+        elif rr_ratio >= 2.5:
+            multiplier = 1.1
+        else:
+            multiplier = 1.0
+        
+        final_size = min(base_size * multiplier, 20.0)
+        return round(final_size, 1)
+    
     def analyze_market(
         self,
         df: pd.DataFrame,
@@ -102,7 +154,8 @@ class EnhancedDeepSeekAgentV2:
                     'reasoning': reason,
                     'entry_price': market_features['current_candle']['close'],
                     'stop_loss': 0,
-                    'take_profit': 0
+                    'take_profit': 0,
+                    'position_size_pct': 0.0
                 }
             
             # 3. 獲取倉位上下文
@@ -143,6 +196,10 @@ class EnhancedDeepSeekAgentV2:
                 )
                 decision['news_adjusted'] = decision['confidence'] != original_confidence
             
+            # 10. 自動計算建議倉位 (如果AI沒給或為0)
+            if decision.get('position_size_pct', 0) == 0:
+                decision['position_size_pct'] = self._calculate_position_size(decision)
+            
             return decision
             
         except Exception as e:
@@ -152,6 +209,7 @@ class EnhancedDeepSeekAgentV2:
                 'entry_price': df.iloc[-1]['close'],
                 'stop_loss': 0,
                 'take_profit': 0,
+                'position_size_pct': 0.0,
                 'reasoning': f"Analysis failed: {str(e)}",
                 'error': str(e)
             }
@@ -414,6 +472,7 @@ Respond in JSON format:
                 'entry_price': 0.0,
                 'stop_loss': 0.0,
                 'take_profit': 0.0,
+                'position_size_pct': 0.0,
                 'reasoning': f'JSON解析失敗: {str(e)}',
                 'error': str(e)
             }
