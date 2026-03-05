@@ -295,22 +295,32 @@ Trading Rules:
 - Risk:Reward ratio must be at least 1:2
 - Consider news sentiment: avoid trades contradicting strong news
 
-CRITICAL: Return ONLY final numeric values (NO calculations, NO expressions):
-WRONG: "stop_loss": 65505.24 - 284.12 = 65221.12
-WRONG: "take_profit": 65505 + (65505 - 65221)*2 = 66069
-CORRECT: "stop_loss": 65221.12
-CORRECT: "take_profit": 66069.36
+CRITICAL JSON FORMAT RULES:
+1. Use 0.0 instead of null for numeric fields
+2. Return ONLY final numbers (NO calculations like "65505 - 284 = 65221")
+3. All numeric fields must be valid numbers
+
+Examples:
+CORRECT:
+  "entry_price": 65505.24
+  "stop_loss": 0.0
+  "take_profit": 66073.48
+
+WRONG:
+  "entry_price": null
+  "stop_loss": 65505.24 - 284.12 = 65221.12
+  "take_profit": 65505 + 284*2 = 66073
 
 Respond in JSON format:
 ```json
 {
   "signal": "LONG" | "SHORT" | "HOLD",
   "confidence": 0-100,
-  "entry_price": <final number only>,
-  "stop_loss": <final number only>,
-  "take_profit": <final number only>,
-  "position_size_pct": <final number only>,
-  "reasoning": "<concise explanation>",
+  "entry_price": <number or 0.0>,
+  "stop_loss": <number or 0.0>,
+  "take_profit": <number or 0.0>,
+  "position_size_pct": <number or 0.0>,
+  "reasoning": "<explanation>",
   "key_risks": ["<risk 1>", "<risk 2>"]
 }
 ```
@@ -331,7 +341,7 @@ Respond in JSON format:
         
         for line in lines:
             # 檢查是否包含計算式
-            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price']):
+            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price', 'confidence']):
                 # 找出所有 = 號後的數字 (可能有多個)
                 all_results = re.findall(r'=\s*([\d.]+)', line)
                 
@@ -360,11 +370,10 @@ Respond in JSON format:
             # 步驟1: 清理多層計算式
             response = self._clean_json_math(response)
             
-            # 步驟2: 多重 null 替換
-            response = re.sub(r'\s+', ' ', response)
+            # 步驟2: 多重 null 替換 (在解析前)
+            response = response.replace('null', '0.0')
             response = re.sub(r'\bnull\b', '0.0', response, flags=re.IGNORECASE)
             response = re.sub(r':\s*null', ': 0.0', response, flags=re.IGNORECASE)
-            response = response.replace('null', '0.0')
             
             # 步驟3: 提取JSON
             json_match = re.search(r'\{[\s\S]*?\}', response)
@@ -373,14 +382,25 @@ Respond in JSON format:
             else:
                 json_str = response.strip()
             
-            # 步驟4: 解析
+            # 步驟4: 再次替換null (防萬一)
+            json_str = json_str.replace('null', '0.0')
+            
+            # 步驟5: 解析
             decision = json.loads(json_str)
             
-            # 步驟5: 安全轉型
-            for field in ['confidence', 'entry_price', 'stop_loss', 'take_profit']:
+            # 步驟6: 強制安全轉型 (處理所有可能的None)
+            numeric_fields = ['confidence', 'entry_price', 'stop_loss', 'take_profit', 'position_size_pct']
+            for field in numeric_fields:
                 val = decision.get(field)
-                decision[field] = float(val) if val is not None else 0.0
+                if val is None or val == 'null' or (isinstance(val, str) and val.lower() == 'null'):
+                    decision[field] = 0.0
+                else:
+                    try:
+                        decision[field] = float(val)
+                    except (ValueError, TypeError):
+                        decision[field] = 0.0
             
+            # 步驟7: 標準化signal
             decision['signal'] = decision.get('signal', 'HOLD').upper()
             if decision['signal'] not in ['LONG', 'SHORT', 'HOLD']:
                 decision['signal'] = 'HOLD'
