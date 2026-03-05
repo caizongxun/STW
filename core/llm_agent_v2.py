@@ -42,7 +42,7 @@ class EnhancedDeepSeekAgentV2:
         
         self.market_analyzer = MarketAnalyzer(
             use_completed_candles_only=True,
-            lookback_bars=5
+            lookback_bars=30  # 使用30根K棒
         )
         
         self.portfolio_manager = portfolio_manager or PortfolioManager()
@@ -70,58 +70,6 @@ class EnhancedDeepSeekAgentV2:
             print(f"Failed to load cases: {e}")
             return []
     
-    def _calculate_position_size(self, decision: Dict) -> float:
-        """
-        根據信心度與盈虧比計算建議倉位
-        
-        Args:
-            decision: AI決策字典
-        
-        Returns:
-            建議倉位百分比 (0-20%)
-        """
-        signal = decision.get('signal', 'HOLD')
-        confidence = decision.get('confidence', 0)
-        entry = decision.get('entry_price', 0)
-        sl = decision.get('stop_loss', 0)
-        tp = decision.get('take_profit', 0)
-        
-        # HOLD或信心不足
-        if signal == 'HOLD' or confidence < 70:
-            return 0.0
-        
-        # 計算盈虧比
-        risk = abs(entry - sl)
-        reward = abs(tp - entry)
-        rr_ratio = reward / risk if risk > 0 else 0
-        
-        # 盈虧比不足 1:1.5
-        if rr_ratio < 1.5:
-            return 0.0
-        
-        # 根據信心度分級
-        if confidence >= 85:
-            base_size = 20.0
-        elif confidence >= 80:
-            base_size = 15.0
-        elif confidence >= 75:
-            base_size = 10.0
-        elif confidence >= 70:
-            base_size = 5.0
-        else:
-            base_size = 0.0
-        
-        # 根據盈虧比調整
-        if rr_ratio >= 3.0:
-            multiplier = 1.2
-        elif rr_ratio >= 2.5:
-            multiplier = 1.1
-        else:
-            multiplier = 1.0
-        
-        final_size = min(base_size * multiplier, 20.0)
-        return round(final_size, 1)
-    
     def analyze_market(
         self,
         df: pd.DataFrame,
@@ -130,7 +78,7 @@ class EnhancedDeepSeekAgentV2:
         max_cases: int = 5
     ) -> Dict:
         """
-        分析市場並給出交易決策
+        分析市場並給出AI自主決策的交易方案
         
         Args:
             df: 完整歷史K線數據
@@ -139,10 +87,10 @@ class EnhancedDeepSeekAgentV2:
             max_cases: 最多注入多少個案例
         
         Returns:
-            交易決策
+            交易決策 (包含AI自主決定的倉位)
         """
         try:
-            # 1. 提取市場特徵 (包含K棒序列)
+            # 1. 提取市場特徵 (包含30根K棒序列)
             market_features = self.market_analyzer.prepare_market_features(df, symbol)
             
             # 2. 檢查市場是否適合交易
@@ -196,9 +144,13 @@ class EnhancedDeepSeekAgentV2:
                 )
                 decision['news_adjusted'] = decision['confidence'] != original_confidence
             
-            # 10. 自動計算建議倉位 (如果AI沒給或為0)
-            if decision.get('position_size_pct', 0) == 0:
-                decision['position_size_pct'] = self._calculate_position_size(decision)
+            # 10. 確保AI決定的倉位合理 (最多20%)
+            position_size = decision.get('position_size_pct', 0.0)
+            if position_size > 20.0:
+                decision['position_size_pct'] = 20.0
+                decision['position_capped'] = True
+            elif position_size < 0:
+                decision['position_size_pct'] = 0.0
             
             return decision
             
@@ -279,7 +231,7 @@ class EnhancedDeepSeekAgentV2:
     ) -> str:
         """Build comprehensive prompt with all context"""
         
-        prompt = "You are a professional cryptocurrency quantitative trader.\n\n"
+        prompt = "You are a professional cryptocurrency quantitative trader with position sizing expertise.\n\n"
         
         # Portfolio Context
         prompt += "=== PORTFOLIO STATUS ===\n"
@@ -339,47 +291,49 @@ class EnhancedDeepSeekAgentV2:
         # Decision Requirements
         prompt += """=== DECISION REQUIREMENTS ===
 
-Analyze the current market by comparing:
-1. Current candle sequence vs similar success cases
-2. Indicator trends (rising/falling/flat) similarity
-3. Portfolio capacity and risk management rules
-4. News sentiment alignment with technical signals
+Analyze the entire 30-candle sequence to determine:
+1. Current trend strength and momentum
+2. Pattern formation (reversal, continuation, breakout)
+3. Volume confirmation and price action quality
+4. Similarity to successful case patterns
+5. Risk/reward setup and stop loss placement
+
+Position Sizing Rules (YOU decide based on analysis):
+- Confidence 70-74%: 5-8% position
+- Confidence 75-79%: 8-12% position
+- Confidence 80-84%: 12-16% position  
+- Confidence 85%+: 16-20% position
+
+Adjust based on:
+- Risk:Reward ratio (higher R:R = larger size)
+- Pattern clarity (clearer setup = more confident)
+- Volume confirmation (strong volume = higher conviction)
+- Capital usage (if >80% used, reduce size)
+- Recent win/loss streak (3+ losses = reduce by 50%)
+- News alignment (contradicting news = reduce by 30%)
 
 Trading Rules:
-- Only open position if confidence > 70% AND similar to success cases
-- If capital usage > 80%, must be HIGH confidence (>85%)
-- If consecutive losses >= 3, do NOT open new positions
-- Stop loss must be based on ATR
-- Risk:Reward ratio must be at least 1:2
-- Consider news sentiment: avoid trades contradicting strong news
+- Only open if confidence > 70%
+- Risk:Reward must be >= 1:2
+- Stop loss based on ATR or pattern invalidation
+- If consecutive losses >= 3, set position_size_pct = 0
 
-CRITICAL JSON FORMAT RULES:
-1. Use 0.0 instead of null for numeric fields
-2. Return ONLY final numbers (NO calculations like "65505 - 284 = 65221")
-3. All numeric fields must be valid numbers
+CRITICAL JSON FORMAT:
+1. Use 0.0 instead of null
+2. Return ONLY final numbers (NO math expressions)
+3. position_size_pct: YOUR calculated position (0-20)
 
-Examples:
-CORRECT:
-  "entry_price": 65505.24
-  "stop_loss": 0.0
-  "take_profit": 66073.48
-
-WRONG:
-  "entry_price": null
-  "stop_loss": 65505.24 - 284.12 = 65221.12
-  "take_profit": 65505 + 284*2 = 66073
-
-Respond in JSON format:
+Respond in JSON:
 ```json
 {
   "signal": "LONG" | "SHORT" | "HOLD",
   "confidence": 0-100,
-  "entry_price": <number or 0.0>,
-  "stop_loss": <number or 0.0>,
-  "take_profit": <number or 0.0>,
-  "position_size_pct": <number or 0.0>,
-  "reasoning": "<explanation>",
-  "key_risks": ["<risk 1>", "<risk 2>"]
+  "entry_price": <number>,
+  "stop_loss": <number>,
+  "take_profit": <number>,
+  "position_size_pct": <0-20 based on your analysis>,
+  "reasoning": "<explain pattern, setup quality, and why this position size>",
+  "key_risks": ["risk1", "risk2"]
 }
 ```
 """
@@ -399,7 +353,7 @@ Respond in JSON format:
         
         for line in lines:
             # 檢查是否包含計算式
-            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price', 'confidence']):
+            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price', 'confidence', 'position_size_pct']):
                 # 找出所有 = 號後的數字 (可能有多個)
                 all_results = re.findall(r'=\s*([\d.]+)', line)
                 
