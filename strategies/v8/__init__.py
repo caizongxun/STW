@@ -2,7 +2,8 @@ import streamlit as st
 from .config import V8Config
 from .backtester import V8Backtester
 from .features import V8FeatureEngine
-from .lstm_model import V8LSTMModel
+# 延遲載入 LSTM 模型，只有真正使用 V8 時才 import
+# from .lstm_model import V8LSTMModel
 from core.data_loader import DataLoader
 import pandas as pd
 
@@ -12,7 +13,7 @@ def render():
     st.info("""
     **V8 核心特性**：
     - 🧠 **真正的 LSTM 模型**：使用 TensorFlow 訓練序列預測模型
-    - 🔄 **雙時間框架**：15m 尋找反轉 + 1h 確認趨勢
+    - 🔄 **雙時間框架**：15m 尋找反轉 + 1h 確認趋勢
     - 🎯 **反轉形態量化**：RSI 背離、Pin Bar、Z-Score 超賣
     - 🛡️ **動態止損**：基於 ATR 自適應 + 移動止盈
     - 📈 **高勝率過濾**：只在模型信心度 >65% 時進場
@@ -59,7 +60,7 @@ def render():
             train_size_pct = 0.7
         
         lstm_confidence = st.slider(
-            "LSTM 信心度閾值 (%)",
+            "LSTM 信心度閘值 (%)",
             50, 90, 65, 5,
             help="只有當模型預測信心度高於此值才進場。降低可增加交易機會。"
         ) / 100.0
@@ -87,6 +88,24 @@ def render():
         
     with col2:
         if test_btn:
+            # 只有按下按鈕時才載入 LSTM 模型
+            try:
+                from .lstm_model import V8LSTMModel
+            except ImportError:
+                st.error("""
+                ⚠️ **TensorFlow 未安裝**
+                
+                V8 策略需要 TensorFlow 來訓練 LSTM 模型。
+                
+                安裝指令：
+                ```bash
+                pip install tensorflow
+                ```
+                
+                安裝後請重新啟動 Streamlit。
+                """)
+                return
+            
             with st.spinner(f"正在加載 {symbol} 數據..."):
                 config = V8Config(
                     symbol=symbol,
@@ -133,7 +152,7 @@ def render():
                     col_a2.metric("最終資金", f"{bt_results['final_capital']:.2f} U",
                                   delta=f"+{(bt_results['final_capital']/capital - 1)*100:.1f}%")
                     profit_usd = bt_results['final_capital'] - capital
-                    col_a3.metric("淨利潤", f"{profit_usd:+.2f} U")
+                    col_a3.metric("淪利潤", f"{profit_usd:+.2f} U")
                     
                     st.markdown("---")
                     
@@ -169,18 +188,18 @@ def render():
                         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
                         col_e1.metric("LSTM 信號數", stats.get('lstm_signals', 0))
                         col_e2.metric("通過信心度", stats.get('pass_confidence', 0))
-                        col_e3.metric("通過趨勢", stats.get('pass_trend', 0))
+                        col_e3.metric("通過趋勢", stats.get('pass_trend', 0))
                         col_e4.metric("最終交易", stats.get('final_trades', 0))
                         
                         st.info(f"""
                         **過濾漏斗分析**：
                         - LSTM 產生了 {stats.get('lstm_signals', 0)} 個看漲信號
                         - 其中 {stats.get('pass_confidence', 0)} 個通過信心度 ≥ {lstm_confidence*100:.0f}%
-                        - 其中 {stats.get('pass_trend', 0)} 個通過趨勢確認
+                        - 其中 {stats.get('pass_trend', 0)} 個通過趋勢確認
                         - 最終執行了 {stats.get('final_trades', 0)} 筆交易
                         
                         **建議**：
-                        {'- 降低 LSTM 信心度到 60%' if stats.get('pass_confidence', 0) < 10 else ''}
+                        {'-降低 LSTM 信心度到 60%' if stats.get('pass_confidence', 0) < 10 else ''}
                         {'- 關閉雙時間框架確認' if stats.get('pass_trend', 0) < 5 else ''}
                         {'- 關閉反轉形態過濾' if enable_pattern_filter and stats.get('final_trades', 0) == 0 else ''}
                         """)
@@ -188,16 +207,16 @@ def render():
                     # 結果評估
                     if bt_results['total_trades'] == 0:
                         st.error("""
-                        ❌ **沒有產生任何交易！**
+                        ⚠️ **沒有產生任何交易！**
                         
                         **可能原因**：
-                        1. LSTM 信心度閾值太高（當前 {:.0f}%）→ 降低到 60%
+                        1. LSTM 信心度閘值太高（當前 {:.0f}%）→ 降低到 60%
                         2. 雙時間框架過濾太嚴格 → 嘗試關閉
                         3. 反轉形態過濾太嚴格 → 嘗試關閉
                         4. 回測期間市場持續單邊，沒有反轉機會
                         
                         **立即行動**：
-                        - 將「LSTM 信心度閾值」降到 **60%**
+                        - 將「LSTM 信心度閘值」降到 **60%**
                         - 取消勾選「啟用反轉形態過濾」
                         - 重新回測
                         """.format(lstm_confidence * 100))
@@ -207,7 +226,7 @@ def render():
                             st.success("✅ 回撤控制良好，可以考慮實盤。")
                             st.balloons()
                     elif monthly_return >= 10:
-                        st.info(f"📊 月化報酬 {monthly_return:.1f}%，表現尚可。建議：\n- 降低 LSTM 信心度閾值到 60%\n- 測試不同的幣種")
+                        st.info(f"📊 月化報酬 {monthly_return:.1f}%，表現尚可。建議：\n- 降低 LSTM 信心度閘值到 60%\n- 測試不同的幣種")
                     else:
                         st.warning(f"⚠️ 月化報酬 {monthly_return:.1f}% 未達預期。可能原因：\n- 訓練數據不足\n- 市場特性變化\n- 過濾條件過於嚴格")
                     
