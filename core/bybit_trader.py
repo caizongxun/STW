@@ -14,8 +14,8 @@ class BybitDemoTrader:
     """
     Bybit Demo Trading 引擎
     - 使用 Demo Trading API (api-demo.bybit.com)
-    - 模擬資金，但使用真實市場價格和滑點
-    - 支援止損止盈
+    - 模擬資金,但使用真實市場價格和滑點
+    - 支持止損止盈
     - 整合倉位感知 AI
     """
     
@@ -36,14 +36,14 @@ class BybitDemoTrader:
                 - 'testnet': Testnet (測試網)
                 - 'mainnet': Mainnet (真實盤)
             symbol: 交易對 (例如 BTCUSDT)
-            max_leverage: 最大槓杆倍數 (1-100)
+            max_leverage: 最大槓桿倍數 (1-100)
         """
         self.symbol = symbol
         self.max_leverage = max_leverage
         self.demo_mode = demo_mode
         
         # 根據模式選擇 testnet 參數
-        # 注意：pybit 5.x 版本不支援自定義 endpoint
+        # 注意:pybit 5.x 版本不支持自定義 endpoint
         # Demo Trading 和 Mainnet 都使用 testnet=False
         # 差別在於 API Key 的類型
         if demo_mode == 'testnet':
@@ -92,7 +92,7 @@ class BybitDemoTrader:
     
     def get_balance(self) -> Dict:
         """
-        獲取帳戶餘額
+        獲取帳戶餘額 (嘗試多種帳戶類型)
         
         Returns:
             {
@@ -102,24 +102,51 @@ class BybitDemoTrader:
             }
         """
         try:
-            result = self.session.get_wallet_balance(
-                accountType="UNIFIED",
-                coin="USDT"
-            )
-            
-            if result['retCode'] == 0:
-                account_info = result['result']['list'][0]
-                usdt_info = next(
-                    (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
-                    None
+            # 1. 嘗試讀取 UNIFIED 帳戶
+            try:
+                result = self.session.get_wallet_balance(
+                    accountType="UNIFIED",
+                    coin="USDT"
                 )
                 
-                if usdt_info:
-                    return {
-                        'total_equity': float(usdt_info['equity']),
-                        'available_balance': float(usdt_info['availableToWithdraw']),
-                        'unrealized_pnl': float(usdt_info['unrealisedPnl'])
-                    }
+                if result['retCode'] == 0 and result['result']['list']:
+                    account_info = result['result']['list'][0]
+                    usdt_info = next(
+                        (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
+                        None
+                    )
+                    
+                    if usdt_info and float(usdt_info['equity']) > 0:
+                        return {
+                            'total_equity': float(usdt_info['equity']),
+                            'available_balance': float(usdt_info['availableToWithdraw']),
+                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
+                        }
+            except:
+                pass
+            
+            # 2. 嘗試讀取 CONTRACT 帳戶
+            try:
+                result = self.session.get_wallet_balance(
+                    accountType="CONTRACT",
+                    coin="USDT"
+                )
+                
+                if result['retCode'] == 0 and result['result']['list']:
+                    account_info = result['result']['list'][0]
+                    usdt_info = next(
+                        (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
+                        None
+                    )
+                    
+                    if usdt_info:
+                        return {
+                            'total_equity': float(usdt_info['equity']),
+                            'available_balance': float(usdt_info['availableToWithdraw']),
+                            'unrealized_pnl': float(usdt_info['unrealisedPnl'])
+                        }
+            except:
+                pass
             
             return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
             
@@ -189,7 +216,7 @@ class BybitDemoTrader:
     
     def get_account_info(self) -> Dict:
         """
-        獲取帳戶資訊 (供 AI使用)
+        獲取帳戶資訊 (供AI使用)
         
         Returns:
             {
@@ -229,7 +256,7 @@ class BybitDemoTrader:
             }
         """
         try:
-            # 1. 設置槓框（如果指定）
+            # 1. 設置槓框(如果指定)
             if leverage and leverage != self.current_leverage:
                 self.set_leverage(leverage)
             
@@ -318,7 +345,7 @@ class BybitDemoTrader:
         平倉當前持倉
         
         Args:
-            size: 平倉數量 (可選，預設全部平倉)
+            size: 平倉數量 (可選,預設全部平倉)
         
         Returns:
             {
@@ -389,7 +416,7 @@ class BybitDemoTrader:
             return {
                 'action': 'HOLD',
                 'success': True,
-                'message': 'AI 建議觀望，不操作'
+                'message': 'AI 建議觀望,不操作'
             }
         
         # 2. CLOSE - 平倉
