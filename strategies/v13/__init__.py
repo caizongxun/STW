@@ -4,6 +4,7 @@ from .config import V13Config
 from .backtester import V13Backtester
 from .case_manager import render_case_manager
 from .auto_trader import render_auto_trader_ui
+from .bybit_demo_tab import render_bybit_demo_tab
 from core.data_loader import DataLoader
 from core.llm_agent_enhanced import EnhancedDeepSeekAgent
 import plotly.graph_objects as go
@@ -11,24 +12,26 @@ from datetime import datetime
 import traceback
 
 def render():
-    st.header("🤖 V13 - DeepSeek-R1 AI 交易決策系統")
+    st.header("[V13] DeepSeek-R1 AI 交易決策系統")
     
     st.info("""
     **V13 核心特色**：
-    - 🧠 DeepSeek-R1 14B 本地推理引擎
-    - 🎯 Chain-of-Thought 多步驟推理
-    - 📚 從歷史成功交易中學習 (40+ 技術指標)
-    - 📰 整合新聞情緒分析 (CryptoPanic API)
-    - ⏱️ 每 15 分鐘自動更新訊號
-    - ⚡ 無 API 費用，完全本地化
+    - DeepSeek-R1 14B 本地推理引擎
+    - Chain-of-Thought 多步驟推理
+    - 從歷史成功交易中學習 (40+ 技術指標)
+    - 整合新聞情緒分析 (CryptoPanic API)
+    - 每 15 分鐘自動更新訊號
+    - Bybit Demo 模擬交易 (新功能)
+    - 無 API 費用，完全本地化
     """)
     
     # 主頁籤
-    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
-        "📊 實時訊號 & 回測", 
-        "⏱️ 自動更新", 
-        "📚 學習案例庫", 
-        "⚙️ 設定"
+    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5 = st.tabs([
+        "[SIGNAL] 實時訊號 & 回測", 
+        "[AUTO] 自動更新", 
+        "[BYBIT] Demo 交易",
+        "[CASES] 學習案例庫", 
+        "[CONFIG] 設定"
     ])
     
     # === Tab 1: 實時訊號 & 回測 ===
@@ -39,12 +42,16 @@ def render():
     with main_tab2:
         render_auto_trader_ui()
     
-    # === Tab 3: 學習案例庫 ===
+    # === Tab 3: Bybit Demo 交易 ===
     with main_tab3:
+        render_bybit_demo_tab()
+    
+    # === Tab 4: 學習案例庫 ===
+    with main_tab4:
         render_case_manager()
     
-    # === Tab 4: 設定 ===
-    with main_tab4:
+    # === Tab 5: 設定 ===
+    with main_tab5:
         render_settings()
 
 
@@ -53,38 +60,38 @@ def render_trading_interface():
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("⚙️ V13 設定")
+        st.subheader("[SETUP] V13 設定")
         
         # 幣種選擇
         symbol = st.selectbox(
-            "💰 交易對",
+            "[SYMBOL] 交易對",
             ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'DOGEUSDT', 'XRPUSDT']
         )
         
         # 時間框架選擇
         timeframe = st.selectbox(
-            "⏰ 時間框架",
+            "[TIMEFRAME] 時間框架",
             ['15m', '1h', '4h', '1d'],
             index=0
         )
         
-        capital = st.number_input("💵 起投本金 (USDT)", 1000, 100000, 10000, 1000)
-        simulation_days = st.number_input("📆 回測天數", 7, 90, 30, 7)
+        capital = st.number_input("[CAPITAL] 起投本金 (USDT)", 1000, 100000, 10000, 1000)
+        simulation_days = st.number_input("[DAYS] 回測天數", 7, 90, 30, 7)
         
         ai_confidence_min = st.slider(
-            "🎯 AI 最低信心門檻 (%)",
+            "[CONFIDENCE] AI 最低信心門檻 (%)",
             50, 95, 70, 5,
             help="只有當 AI 信心度高於此值時才會開倉"
         )
         
         use_enhanced = st.checkbox(
-            "🚀 使用強化AI引擎（注入40+指標）",
+            "[ENHANCED] 使用強化AI引擎（注入40+指標）",
             value=True,
             help="強化版會自動匹配相似案例並注入到Prompt"
         )
         
         enable_news = st.checkbox(
-            "📰 啟用新聞分析",
+            "[NEWS] 啟用新聞分析",
             value=True,
             help="整合 CryptoPanic API 的新聞情緒分析"
         )
@@ -92,7 +99,7 @@ def render_trading_interface():
         st.divider()
         
         # 實時訊號分析
-        if st.button("🔍 獲取實時 AI 訊號", type="secondary"):
+        if st.button("[ANALYZE] 獲取實時 AI 訊號", type="secondary"):
             with st.spinner("正在調用 DeepSeek-R1 引擎...預計 10-20 秒"):
                 try:
                     loader = DataLoader()
@@ -126,40 +133,40 @@ def render_trading_interface():
                         st.session_state['latest_timeframe'] = timeframe
                         st.session_state['latest_price'] = latest_data['close']
                         st.session_state['news_summary'] = news_summary
-                        st.success("✅ AI 分析完成！")
+                        st.success("[OK] AI 分析完成！")
                     else:
-                        st.error("❌ 數據不足，至少需要 200 根 K 線")
+                        st.error("[ERROR] 數據不足，至少需要 200 根 K 線")
                 except Exception as e:
-                    st.error(f"❌ 分析失敗：{str(e)}")
+                    st.error(f"[ERROR] 分析失敗：{str(e)}")
                     st.code(traceback.format_exc())
         
         st.divider()
         
         # 回測按鈕
-        test_btn = st.button("🚀 開始 V13 AI 回測", type="primary")
+        test_btn = st.button("[BACKTEST] 開始 V13 AI 回測", type="primary")
     
     with col2:
         # 顯示實時訊號
         if 'latest_signal' in st.session_state:
-            st.subheader(f"📡 實時 AI 訊號 - {st.session_state.get('latest_symbol', 'N/A')} ({st.session_state.get('latest_timeframe', 'N/A')})")
+            st.subheader(f"[SIGNAL] 實時 AI 訊號 - {st.session_state.get('latest_symbol', 'N/A')} ({st.session_state.get('latest_timeframe', 'N/A')})")
             
             signal = st.session_state['latest_signal']
             
             # 檢查是否有錯誤
             if 'error' in signal:
-                st.error(f"❌ AI 分析出錯：{signal['error']}")
+                st.error(f"[ERROR] AI 分析出錯：{signal['error']}")
                 if 'parse_error' in signal:
-                    st.warning("💡 提示：JSON 解析失敗，這可能是 DeepSeek 輸出格式問題。請再試一次。")
-                with st.expander("🔍 查看原始輸出"):
+                    st.warning("[INFO] JSON 解析失敗，這可能是 DeepSeek 輸出格式問題。請再試一次。")
+                with st.expander("[DEBUG] 查看原始輸出"):
                     st.text(signal.get('reasoning', 'N/A'))
             else:
                 # 訊號摘要卡片
                 if signal['signal'] == 'LONG':
-                    st.success(f"📈 **看多訊號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.success(f"[LONG] **看多訊號** - 信心度: {signal.get('confidence', 0)}%")
                 elif signal['signal'] == 'SHORT':
-                    st.error(f"📉 **看空訊號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.error(f"[SHORT] **看空訊號** - 信心度: {signal.get('confidence', 0)}%")
                 else:
-                    st.warning(f"⏸️ **觀望訊號** - 信心度: {signal.get('confidence', 0)}%")
+                    st.warning(f"[HOLD] **觀望訊號** - 信心度: {signal.get('confidence', 0)}%")
                 
                 # 詳細交易計劃
                 col_a, col_b, col_c = st.columns(3)
@@ -168,21 +175,22 @@ def render_trading_interface():
                 col_c.metric("止盈價", f"${signal['take_profit']:,.2f}")
                 
                 col_d, col_e = st.columns(2)
-                col_d.metric("盈虧比", f"1:{signal.get('risk_reward_ratio', 0):.2f}")
+                risk_reward = (signal['take_profit'] - signal['entry_price']) / (signal['entry_price'] - signal['stop_loss']) if signal['entry_price'] != signal['stop_loss'] else 0
+                col_d.metric("盈虧比", f"1:{risk_reward:.2f}")
                 col_e.metric("建議倉位", f"{signal.get('position_size_percent', 0)}%")
                 
                 # 新聞摘要
                 if st.session_state.get('news_summary'):
-                    st.info(f"📰 **新聞情緒**\n{st.session_state['news_summary']}")
+                    st.info(f"[NEWS] **新聞情緒**\n{st.session_state['news_summary']}")
                 
                 # 匹配案例（強化版獨有）
                 if signal.get('matched_cases'):
-                    with st.expander(f"🔗 匹配到 {len(signal['matched_cases'])} 個相似案例"):
+                    with st.expander(f"[CASES] 匹配到 {len(signal['matched_cases'])} 個相似案例"):
                         for case_id in signal['matched_cases']:
-                            st.caption(f"• {case_id}")
+                            st.caption(f"- {case_id}")
                 
                 # AI 推理過程
-                with st.expander("🧠 查看 AI 推理過程"):
+                with st.expander("[REASONING] 查看 AI 推理過程"):
                     st.text_area(
                         "DeepSeek-R1 分析",
                         signal.get('reasoning', 'N/A'),
@@ -191,9 +199,9 @@ def render_trading_interface():
                 
                 # 風險提示
                 if signal.get('key_risks'):
-                    with st.expander("⚠️ 關鍵風險提示"):
+                    with st.expander("[RISKS] 關鍵風險提示"):
                         for risk in signal['key_risks']:
-                            st.warning(f"• {risk}")
+                            st.warning(f"- {risk}")
         
         # 回測結果
         if test_btn:
@@ -215,10 +223,10 @@ def render_trading_interface():
                         results = bt.run(df)
                         
                         if 'error' not in results:
-                            st.success("✅ V13 AI 回測完成！")
+                            st.success("[OK] V13 AI 回測完成！")
                             
                             # 績效指標
-                            st.subheader("📊 回測績效")
+                            st.subheader("[PERFORMANCE] 回測績效")
                             
                             col_r1, col_r2, col_r3, col_r4 = st.columns(4)
                             col_r1.metric("總報酬", f"{results['return_pct']:.2f}%")
@@ -233,7 +241,7 @@ def render_trading_interface():
                             col_r8.metric("平均持倉", f"{results['avg_holding_hours']:.1f}h")
                             
                             # AI 決策統計
-                            st.subheader("🤖 AI 決策分析")
+                            st.subheader("[AI] AI 決策分析")
                             
                             col_ai1, col_ai2, col_ai3 = st.columns(3)
                             col_ai1.metric("AI 訊號數", results.get('ai_signals_count', 0))
@@ -242,7 +250,7 @@ def render_trading_interface():
                             
                             # 資金曲線
                             if results.get('equity_curve'):
-                                st.subheader("📈 資金曲線")
+                                st.subheader("[EQUITY] 資金曲線")
                                 fig = go.Figure()
                                 fig.add_trace(go.Scatter(
                                     y=results['equity_curve'],
@@ -259,23 +267,23 @@ def render_trading_interface():
                             
                             # 成功案例學習狀況
                             if results.get('learned_cases', 0) > 0:
-                                st.info(f"📚 本次回測新增 {results['learned_cases']} 個成功案例到 AI 學習庫")
+                                st.info(f"[LEARNED] 本次回測新增 {results['learned_cases']} 個成功案例到 AI 學習庫")
                         else:
-                            st.error(f"❌ 回測失敗：{results['error']}")
+                            st.error(f"[ERROR] 回測失敗：{results['error']}")
                             st.code(traceback.format_exc())
                     else:
-                        st.error("❌ 無法載入數據，請檢查幣種與時間框架設定")
+                        st.error("[ERROR] 無法載入數據，請檢查幣種與時間框架設定")
                 except Exception as e:
-                    st.error(f"❌ 系統錯誤：{str(e)}")
+                    st.error(f"[ERROR] 系統錯誤：{str(e)}")
                     st.code(traceback.format_exc())
 
 
 def render_settings():
     """渲染設定頁面"""
-    st.subheader("⚙️ V13 進階設定")
+    st.subheader("[CONFIG] V13 進階設定")
     
     st.markdown("""
-    ### 🔧 Ollama 配置
+    ### [OLLAMA] Ollama 配置
     
     **前提條件**：
     1. 已安裝 Ollama：`ollama -v`
@@ -291,7 +299,24 @@ def render_settings():
     st.divider()
     
     st.markdown("""
-    ### 📰 新聞 API 配置
+    ### [BYBIT] Bybit Testnet 設定
+    
+    **申請步驟**：
+    1. 前往 [testnet.bybit.com](https://testnet.bybit.com)
+    2. 註冊/登入帳戶
+    3. 進入 API Management 創建 API Key
+    4. 領取免費模擬資金 (100,000 USDT)
+    
+    **注意事項**：
+    - Testnet 資金無法提現，僅供測試
+    - 使用真實市場數據，但不會影響真實帳戶
+    - 建議先在 Testnet 測試 1-2 週，確認策略有效再上真實盤
+    """)
+    
+    st.divider()
+    
+    st.markdown("""
+    ### [NEWS] 新聞 API 配置
     
     **CryptoPanic API**：
     - 免費版本：每小時 300 請求
@@ -307,7 +332,7 @@ def render_settings():
     st.divider()
     
     st.markdown("""
-    ### 📚 學習案例管理
+    ### [CASES] 學習案例管理
     
     **建議數量**：
     - 最少：20-30 個案例（防止過擬合）
@@ -324,25 +349,30 @@ def render_settings():
     st.divider()
     
     st.markdown("""
-    ### 🔄 更新記錄
+    ### [UPDATES] 更新記錄
+    
+    **v2.2 (2026-03-05)**
+    - 新增 Bybit Demo 自動交易功能
+    - 支援模擬資金 + 真實市場
+    - 自動止損止盈設置
     
     **v2.1 (2026-03-05)**
-    - ✅ 新增 15 分鐘自動更新功能
-    - ✅ 整合 CryptoPanic 新聞 API
-    - ✅ 修復 null 解析問題
-    - ✅ 新增 V2 強化引擎 (llm_agent_v2)
+    - 新增 15 分鐘自動更新功能
+    - 整合 CryptoPanic 新聞 API
+    - 修復 null 解析問題
+    - 新增 V2 強化引擎 (llm_agent_v2)
     
     **v2.0 (2026-03-04)**
-    - ✅ 新增強化AI引擎（`EnhancedDeepSeekAgent`）
-    - ✅ 支援40+技術指標完整特徵提取
-    - ✅ 自動案例相似度匹配
-    - ✅ 視覺化案例管理界面
-    - ✅ 批量導入歷史獲利案例
+    - 新增強化AI引擎（`EnhancedDeepSeekAgent`）
+    - 支援40+技術指標完整特徵提取
+    - 自動案例相似度匹配
+    - 視覺化案例管理界面
+    - 批量導入歷史獲利案例
     
     **v1.0 (2026-03-01)**
-    - ✅ 基礎 DeepSeek-R1 整合
-    - ✅ 簡化版 Prompt Learning
-    - ✅ 回測引擎
+    - 基礎 DeepSeek-R1 整合
+    - 簡化版 Prompt Learning
+    - 回測引擎
     """)
 
 
