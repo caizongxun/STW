@@ -5,6 +5,7 @@ from .backtester import V13Backtester
 from .case_manager import render_case_manager
 from .auto_trader import render_auto_trader_ui
 from .bybit_demo_tab import render_bybit_demo_tab
+from .ai_prediction_log_tab import render_ai_prediction_log_tab
 from core.data_loader import DataLoader
 from core.llm_agent_enhanced import EnhancedDeepSeekAgent
 import plotly.graph_objects as go
@@ -22,14 +23,16 @@ def render():
     - 整合新聞情緒分析 (CryptoPanic API)
     - 每 15 分鐘自動更新訊號
     - Bybit Demo 模擬交易 (新功能)
+    - AI 預測記錄 & 準確度分析 (新功能)
     - 無 API 費用，完全本地化
     """)
     
     # 主頁籤
-    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5 = st.tabs([
+    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
         "[SIGNAL] 實時訊號 & 回測", 
         "[AUTO] 自動更新", 
         "[BYBIT] Demo 交易",
+        "[AI LOG] 預測記錄",
         "[CASES] 學習案例庫", 
         "[CONFIG] 設定"
     ])
@@ -46,17 +49,21 @@ def render():
     with main_tab3:
         render_bybit_demo_tab()
     
-    # === Tab 4: 學習案例庫 ===
+    # === Tab 4: AI 預測記錄 ===
     with main_tab4:
+        render_ai_prediction_log_tab()
+    
+    # === Tab 5: 學習案例庫 ===
+    with main_tab5:
         render_case_manager()
     
-    # === Tab 5: 設定 ===
-    with main_tab5:
+    # === Tab 6: 設定 ===
+    with main_tab6:
         render_settings()
 
 
 def render_trading_interface():
-    """渲染交易界面（原本的V13功能）"""
+    """渲柔交易界面（原本的V13功能）"""
     col1, col2 = st.columns([1, 2])
     
     with col1:
@@ -263,7 +270,7 @@ def render_trading_interface():
                                     margin=dict(l=0, r=0, t=30, b=0),
                                     hovermode='x unified'
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig, width='stretch')
                             
                             # 成功案例學習狀況
                             if results.get('learned_cases', 0) > 0:
@@ -279,7 +286,7 @@ def render_trading_interface():
 
 
 def render_settings():
-    """渲染設定頁面"""
+    """渲柔設定頁面"""
     st.subheader("[CONFIG] V13 進階設定")
     
     st.markdown("""
@@ -351,6 +358,12 @@ def render_settings():
     st.markdown("""
     ### [UPDATES] 更新記錄
     
+    **v2.3 (2026-03-05)**
+    - 新增 AI 預測記錄 Tab
+    - 記錄近 20 根 K 棒的預測結果
+    - 自動計算準確率
+    - 支持 CSV 導出
+    
     **v2.2 (2026-03-05)**
     - 新增 Bybit Demo 自動交易功能
     - 支援模擬資金 + 真實市場
@@ -364,7 +377,7 @@ def render_settings():
     
     **v2.0 (2026-03-04)**
     - 新增強化AI引擎（`EnhancedDeepSeekAgent`）
-    - 支援40+技術指標完整特徵提取
+    - 支揷40+技術指標完整特徵提取
     - 自動案例相似度匹配
     - 視覺化案例管理界面
     - 批量導入歷史獲利案例
@@ -419,7 +432,7 @@ def prepare_market_features(row, df):
     # 成交量比率
     vol_ratio = volume[idx] / volume_ma[idx] if volume_ma[idx] > 0 else 1.0
     
-    # 支撐/壓力
+    # 支擐/壓力
     pivot = (high[idx] + low[idx] + close[idx]) / 3
     resistance = pivot + (high[idx] - low[idx])
     support = pivot - (high[idx] - low[idx])
@@ -457,7 +470,7 @@ def prepare_market_features(row, df):
         'volume_ratio': float(vol_ratio),
         'obv': float(obv[idx]) if not pd.isna(obv[idx]) else 0,
         
-        # 支撐/壓力
+        # 支擐/壓力
         'dist_to_resistance': float((resistance - close[idx]) / close[idx] * 100),
         'dist_to_support': float((close[idx] - support) / close[idx] * 100)
     }
