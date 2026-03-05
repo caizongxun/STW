@@ -3,6 +3,7 @@
 支援從詳細成功案例中學習，注入40+技術指標到Prompt
 """
 import json
+import re
 from pathlib import Path
 from typing import Dict, List
 from langchain_ollama import OllamaLLM
@@ -64,6 +65,11 @@ class EnhancedDeepSeekAgent:
         try:
             # 調Ollama
             response = self.model.invoke(prompt)
+            
+            # ★★★ 關鍵修改：在接收 AI 輸出後立即暴力替換 null ★★★
+            response = response.replace(': null', ': 0.0')
+            response = response.replace(':null', ': 0.0')
+            response = re.sub(r'"(entry_price|stop_loss|take_profit|position_size_pct)"\s*:\s*null', r'"\1": 0.0', response, flags=re.IGNORECASE)
             
             # 解析JSON回答
             decision = self._parse_response(response)
@@ -160,9 +166,9 @@ class EnhancedDeepSeekAgent:
             prompt += f"出場價：${case['exit_price']:,.2f}\n"
             prompt += f"持倉：{case['holding_bars']}根K棒\n"
             
-            # 顯示指標趨勢
+            # 顯示指標趋勢
             if case.get('indicator_trends'):
-                prompt += "\n關鍵指標變化趨勢：\n"
+                prompt += "\n關鍵指標變化趋勢：\n"
                 for indicator, trend_data in case['indicator_trends'].items():
                     values_str = " → ".join([str(v) for v in trend_data['values']])
                     prompt += f"- {indicator}: [{values_str}] ({trend_data['trend']})\n"
@@ -181,7 +187,7 @@ class EnhancedDeepSeekAgent:
         
         # 按類別顯示指標
         categories = {
-            '趨勢': ['ema9', 'ema21', 'ema50', 'ema200', 'macd', 'macd_signal', 'macd_hist', 'adx'],
+            '趋勢': ['ema9', 'ema21', 'ema50', 'ema200', 'macd', 'macd_signal', 'macd_hist', 'adx'],
             '動能': ['rsi', 'stoch_k', 'stoch_d', 'cci', 'mfi', 'willr'],
             '波動': ['atr', 'bb_upper', 'bb_middle', 'bb_lower', 'bb_position'],
             '成交量': ['volume_ratio', 'obv', 'ad'],
@@ -207,14 +213,16 @@ class EnhancedDeepSeekAgent:
 3. 評估支撐/壓力位置是否合理
 4. 給出明確的交易計劃
 
+⚠️ CRITICAL: NEVER use null - ALWAYS use 0.0 for numeric fields
+
 必須以JSON格式回答：
 ```json
 {{
   "signal": "LONG" | "SHORT" | "HOLD",
-  "confidence": 0-100,
-  "entry_price": 精確進場價,
-  "stop_loss": 止損價（基於ATR）,
-  "take_profit": 止盈價（盈虧比至少1:2）,
+  "confidence": 65,
+  "entry_price": 0.0,
+  "stop_loss": 0.0,
+  "take_profit": 0.0,
   "reasoning": "簡潔說明決策理由與匹配的案例特徵",
   "key_risks": ["風險1", "風險2"]
 }}
@@ -244,29 +252,43 @@ class EnhancedDeepSeekAgent:
                 # 嘗試直接解析
                 json_str = response.strip()
             
+            # ★★★ 暴力替換null（防萬一）★★★
+            json_str = json_str.replace(': null', ': 0.0')
+            json_str = json_str.replace(':null', ': 0.0')
+            json_str = re.sub(r'"(entry_price|stop_loss|take_profit)"\s*:\s*null', r'"\1": 0.0', json_str, flags=re.IGNORECASE)
+            
             decision = json.loads(json_str)
             
             # 驗證必要欄位
             required_fields = ['signal', 'entry_price', 'stop_loss', 'take_profit', 'confidence']
             for field in required_fields:
                 if field not in decision:
-                    raise ValueError(f"缺少必要欄位: {field}")
+                    decision[field] = 0.0 if field != 'signal' else 'HOLD'
             
             # 標準化signal
             decision['signal'] = decision['signal'].upper()
             if decision['signal'] not in ['LONG', 'SHORT', 'HOLD']:
                 decision['signal'] = 'HOLD'
             
-            # 確保數值類型
-            decision['confidence'] = int(decision['confidence'])
-            decision['entry_price'] = float(decision['entry_price'])
-            decision['stop_loss'] = float(decision['stop_loss'])
-            decision['take_profit'] = float(decision['take_profit'])
+            # 確保數值類型（強制轉型，允許None）
+            decision['confidence'] = int(decision.get('confidence', 0) or 0)
+            decision['entry_price'] = float(decision.get('entry_price', 0) or 0)
+            decision['stop_loss'] = float(decision.get('stop_loss', 0) or 0)
+            decision['take_profit'] = float(decision.get('take_profit', 0) or 0)
             
             return decision
             
         except Exception as e:
-            raise ValueError(f"JSON解析失敗: {str(e)}\n\n原始輸出:\n{response[:500]}")
+            return {
+                'signal': 'HOLD',
+                'confidence': 0,
+                'entry_price': 0.0,
+                'stop_loss': 0.0,
+                'take_profit': 0.0,
+                'reasoning': f"JSON解析失敗: {str(e)}",
+                'error': str(e),
+                'parse_error': True
+            }
     
     def reload_cases(self):
         """重新載入案例庫（當添加新案例後）"""
