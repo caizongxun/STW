@@ -4,7 +4,7 @@ from strategies import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13
 # 設定頁面
 st.set_page_config(
     page_title="STW - Smart Trading Workshop",
-    page_icon="📈",
+    page_icon="",
     layout="wide"
 )
 
@@ -25,34 +25,34 @@ AVAILABLE_VERSIONS = {
 }
 
 def main():
-    st.title("📈 STW - Smart Trading Workshop")
-    st.caption("🤖 AI 驅動的加密貨幣交易系統")
-    
+    st.title("STW - Smart Trading Workshop")
+    st.caption("AI 驅動的加密貨幣交易系統")
+
     # 側邊欄版本選擇
     with st.sidebar:
-        st.header("⚙️ 系統設定")
+        st.header("系統設定")
         version = st.selectbox(
-            "🔧 選擇策略版本",
+            "選擇策略版本",
             list(AVAILABLE_VERSIONS.keys()),
             index=len(AVAILABLE_VERSIONS) - 1  # 預設選擇最新版本
         )
-        
+
         st.divider()
         st.markdown("""
-        ### 📚 版本說明
+        ### 版本說明
         - **V1-V3**: 基礎量化策略
         - **V4-V8**: 機器學習優化
         - **V9-V11**: 多維度擴展
         - **V12**: Triple Barrier 標籤
         - **V13**: DeepSeek-R1 AI 決策
         """)
-    
+
     # 渲染選中的版本
     AVAILABLE_VERSIONS[version].render()
-    
+
     # 底部資訊
     st.divider()
-    st.caption("⚠️ 風險警告：加密貨幣交易具有高風險，請勿投入超過您可承受的損失金額。")
+    st.caption("風險警告：加密貨幣交易具有高風險，請勿投入超過您可承受的損失金額。")
 
 if __name__ == "__main__":
     main()
