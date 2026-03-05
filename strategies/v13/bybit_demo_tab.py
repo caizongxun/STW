@@ -10,7 +10,6 @@ import traceback
 from core.bybit_trader import BybitDemoTrader
 from core.data_loader import DataLoader
 from core.llm_agent_enhanced import EnhancedDeepSeekAgent
-from strategies.v13 import prepare_market_features
 
 
 def render_bybit_demo_tab():
@@ -212,6 +211,9 @@ def render_bybit_demo_tab():
         # 初始化計時器
         if 'last_update_time' not in st.session_state:
             st.session_state['last_update_time'] = 0
+        
+        # 導入 prepare_market_features (延遲導入避免循環)
+        from strategies.v13 import prepare_market_features
         
         while st.session_state.get('bybit_running'):
             current_time = time.time()
