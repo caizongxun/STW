@@ -1,6 +1,6 @@
 """
-Bybit Demo 自動交易引擎
-使用模擬資金 + 真實市場數據
+Bybit Demo Trading 自動交易引擎
+使用模擬資金 + 真實市場數據 + 真實滑點
 """
 import time
 from datetime import datetime
@@ -11,9 +11,9 @@ import pandas as pd
 
 class BybitDemoTrader:
     """
-    Bybit Demo 交易引擎
-    - 使用 Testnet API
-    - 模擬資金，真實市場
+    Bybit Demo Trading 引擎
+    - 使用 Demo Trading API (api-demo.bybit.com)
+    - 模擬資金，但使用真實市場價格和滑點
     - 支援止損止盈
     """
     
@@ -21,28 +21,53 @@ class BybitDemoTrader:
         self,
         api_key: str,
         api_secret: str,
-        testnet: bool = True,
+        demo_mode: str = 'demo',  # 'demo', 'testnet', or 'mainnet'
         symbol: str = 'BTCUSDT',
         leverage: int = 1
     ):
         """
         Args:
-            api_key: Bybit API Key (Testnet 或 Mainnet)
+            api_key: Bybit API Key
             api_secret: Bybit API Secret
-            testnet: True=模擬盤, False=真實盤
+            demo_mode: 
+                - 'demo': Demo Trading (真實市場模擬)
+                - 'testnet': Testnet (測試網)
+                - 'mainnet': Mainnet (真實盤)
             symbol: 交易對 (例如 BTCUSDT)
             leverage: 槓杆倍數 (1-100)
         """
         self.symbol = symbol
         self.leverage = leverage
-        self.testnet = testnet
+        self.demo_mode = demo_mode
+        
+        # 根據模式選擇 endpoint
+        if demo_mode == 'demo':
+            # Bybit Demo Trading
+            base_url = "https://api-demo.bybit.com"
+            testnet = False
+        elif demo_mode == 'testnet':
+            # Bybit Testnet
+            testnet = True
+            base_url = None
+        else:
+            # Bybit Mainnet (真實盤)
+            testnet = False
+            base_url = None
         
         # 初始化 Bybit HTTP 客戶端
-        self.session = HTTP(
-            testnet=testnet,
-            api_key=api_key,
-            api_secret=api_secret
-        )
+        if base_url:
+            self.session = HTTP(
+                testnet=testnet,
+                api_key=api_key,
+                api_secret=api_secret,
+                endpoint=base_url  # 使用自定義 endpoint
+            )
+        else:
+            self.session = HTTP(
+                testnet=testnet,
+                api_key=api_key,
+                api_secret=api_secret
+            )
         
         # 設置槓杆
         self._set_leverage()
@@ -61,7 +86,13 @@ class BybitDemoTrader:
                 buyLeverage=str(self.leverage),
                 sellLeverage=str(self.leverage)
             )
-            print(f"[BYBIT] 槓杆設置為 {self.leverage}x: {result['retMsg']}")
+            mode_name = {
+                'demo': 'Demo Trading',
+                'testnet': 'Testnet',
+                'mainnet': 'Mainnet'
+            }.get(self.demo_mode, 'Unknown')
+            
+            print(f"[BYBIT-{mode_name.upper()}] 槓杆設置為 {self.leverage}x: {result['retMsg']}")
         except Exception as e:
             print(f"[BYBIT] 設置槓杆失敗: {e}")
     
@@ -405,9 +436,15 @@ class BybitDemoTrader:
         balance = self.get_balance()
         position = self.get_position()
         
+        mode_name = {
+            'demo': 'Demo Trading',
+            'testnet': 'Testnet',
+            'mainnet': 'Mainnet (真實盤)'
+        }.get(self.demo_mode, 'Unknown')
+        
         return {
             'balance': balance,
             'position': position,
             'total_trades': len(self.trade_history),
-            'testnet': self.testnet
+            'mode': mode_name
         }
