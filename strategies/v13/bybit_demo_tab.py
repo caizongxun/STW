@@ -1,6 +1,7 @@
 """
 Bybit 自動交易 UI
 支援 Demo Trading / Testnet / Mainnet
+整合倉位感知 AI
 """
 import streamlit as st
 import time
@@ -9,12 +10,20 @@ import traceback
 
 from core.bybit_trader import BybitDemoTrader
 from core.data_loader import DataLoader
-from core.llm_agent_enhanced import EnhancedDeepSeekAgent
+from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
 
 
 def render_bybit_demo_tab():
-    """渲染 Bybit 交易頁面"""
-    st.subheader("[BYBIT] 自動交易")
+    """渲柔 Bybit 交易頁面"""
+    st.subheader("[BYBIT] 智能自動交易")
+    
+    st.info("""
+    **智能特性**：
+    - AI 能讀取當前倉位、本金、浮盈浮虧
+    - 根據市場波動度動態調整槓框 (1-10x)
+    - 支援多種操作：開倉/平倉/加倉/減倉/觀望
+    - 智能風控：不超過可用餘額的 30%
+    """)
     
     # === 模式選擇 ===
     mode = st.radio(
@@ -25,7 +34,8 @@ def render_bybit_demo_tab():
             'testnet': '[TEST] Testnet - 測試網 (內部價格)',
             'mainnet': '[LIVE] Mainnet - 真實盤 (危險)'
         }[x],
-        horizontal=True
+        horizontal=True,
+        key='bybit_mode'
     )
     
     # 模式說明
@@ -66,47 +76,48 @@ def render_bybit_demo_tab():
                     'demo': "在 bybit.com 申請 (API Management > Demo Trading)",
                     'testnet': "在 testnet.bybit.com 申請",
                     'mainnet': "在 bybit.com 申請 (真實盤)"
-                }[mode]
+                }[mode],
+                key='bybit_api_key'
             )
             
             symbol = st.selectbox(
                 "交易對",
-                ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
+                ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'],
+                key='bybit_symbol'
             )
         
         with col2:
             api_secret = st.text_input(
                 f"Bybit {mode.upper()} API Secret",
-                type="password"
+                type="password",
+                key='bybit_api_secret'
             )
             
-            leverage = st.slider(
-                "槓杆倍數",
-                1, 10, 1,
-                help="建議新手使用1x"
+            max_leverage = st.slider(
+                "最大槓杆倍數",
+                1, 10, 5,
+                help="AI 會根據市場情況動態調整，不超過此值",
+                key='bybit_max_leverage'
             )
-        
-        position_size = st.number_input(
-            "每次下單金額 (USDT)",
-            10, 1000, 100, 10
-        )
         
         update_interval = st.selectbox(
             "更新間隔",
             [('15 分鐘', 15), ('30 分鐘', 30), ('1 小時', 60)],
-            format_func=lambda x: x[0]
+            format_func=lambda x: x[0],
+            key='bybit_update_interval'
         )[1]
         
         ai_confidence_min = st.slider(
             "AI 最低信心度 (%)",
-            50, 95, 70, 5
+            50, 95, 70, 5,
+            key='bybit_ai_confidence'
         )
     
     # === 控制按鈕 ===
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     
     with col_btn1:
-        if st.button("[TEST] 測試連線", type="secondary"):
+        if st.button("[TEST] 測試連線", type="secondary", key='bybit_test_btn'):
             if not api_key or not api_secret:
                 st.error("[ERROR] 請先輸入 API Key 和 Secret")
             else:
@@ -117,7 +128,7 @@ def render_bybit_demo_tab():
                             api_secret=api_secret,
                             demo_mode=mode,
                             symbol=symbol,
-                            leverage=leverage
+                            max_leverage=max_leverage
                         )
                         
                         balance = trader.get_balance()
@@ -139,10 +150,10 @@ def render_bybit_demo_tab():
                         st.code(traceback.format_exc())
     
     with col_btn2:
-        start_btn = st.button("[START] 啟動自動交易", type="primary")
+        start_btn = st.button("[START] 啟動智能交易", type="primary", key='bybit_start_btn')
     
     with col_btn3:
-        if st.button("[STOP] 停止交易", type="secondary"):
+        if st.button("[STOP] 停止交易", type="secondary", key='bybit_stop_btn'):
             st.session_state['bybit_running'] = False
     
     st.divider()
@@ -154,15 +165,14 @@ def render_bybit_demo_tab():
         elif mode == 'mainnet':
             # 真實盤需要確認
             st.error("[WARNING] 你正在啟動真實盤交易！請確認你已充分測試策略。")
-            if st.checkbox("我了解風險，確認啟動真實盤交易"):
+            if st.checkbox("我了解風險，確認啟動真實盤交易", key='bybit_mainnet_confirm'):
                 st.session_state['bybit_running'] = True
                 st.session_state['bybit_config'] = {
                     'api_key': api_key,
                     'api_secret': api_secret,
                     'demo_mode': mode,
                     'symbol': symbol,
-                    'leverage': leverage,
-                    'position_size': position_size,
+                    'max_leverage': max_leverage,
                     'update_interval': update_interval,
                     'ai_confidence_min': ai_confidence_min
                 }
@@ -173,8 +183,7 @@ def render_bybit_demo_tab():
                 'api_secret': api_secret,
                 'demo_mode': mode,
                 'symbol': symbol,
-                'leverage': leverage,
-                'position_size': position_size,
+                'max_leverage': max_leverage,
                 'update_interval': update_interval,
                 'ai_confidence_min': ai_confidence_min
             }
@@ -190,17 +199,17 @@ def render_bybit_demo_tab():
                 api_secret=config['api_secret'],
                 demo_mode=config['demo_mode'],
                 symbol=config['symbol'],
-                leverage=config['leverage']
+                max_leverage=config['max_leverage']
             )
             st.session_state['bybit_trader'] = trader
         else:
             trader = st.session_state['bybit_trader']
         
         # 初始化 AI 引擎
-        if 'ai_agent' not in st.session_state:
-            st.session_state['ai_agent'] = EnhancedDeepSeekAgent()
+        if 'bybit_ai_agent' not in st.session_state:
+            st.session_state['bybit_ai_agent'] = PositionAwareDeepSeekAgent()
         
-        ai_agent = st.session_state['ai_agent']
+        ai_agent = st.session_state['bybit_ai_agent']
         data_loader = DataLoader()
         
         # 實時顯示區
@@ -232,39 +241,52 @@ def render_bybit_demo_tab():
                     
                     if df is not None and len(df) > 200:
                         # 2. 計算技術指標
-                        latest_data = prepare_market_features(df.iloc[-1], df)
+                        market_data = prepare_market_features(df.iloc[-1], df)
                         
-                        # 3. AI 分析
-                        decision = ai_agent.analyze_market(latest_data)
+                        # 3. 獲取帳戶資訊
+                        account_info = trader.get_account_info()
                         
-                        # 4. 檢查信心度
+                        # 4. 獲取持倉資訊
+                        position_info = trader.get_position()
+                        
+                        # 5. AI 分析
+                        decision = ai_agent.analyze_with_position(
+                            market_data=market_data,
+                            account_info=account_info,
+                            position_info=position_info
+                        )
+                        
+                        # 6. 檢查信心度
                         if decision.get('confidence', 0) >= config['ai_confidence_min']:
-                            # 5. 執行交易
-                            result = trader.execute_ai_signal(
-                                signal=decision,
-                                position_size_usdt=config['position_size']
+                            # 7. 執行交易
+                            result = trader.execute_ai_decision(
+                                decision=decision,
+                                market_data=market_data
                             )
                             
                             with status_placeholder.container():
                                 if result['success']:
                                     st.success(f"[OK] {result['action']}: {result['message']}")
+                                    st.caption(f"AI 推理: {decision.get('reasoning', 'N/A')[:200]}...")
+                                    st.caption(f"風險評估: {decision.get('risk_assessment', 'N/A')}")
                                 else:
                                     st.error(f"[ERROR] {result['action']}: {result['message']}")
                         else:
                             with status_placeholder.container():
                                 st.warning(f"[SKIP] AI 信心度 {decision.get('confidence', 0)}% < {config['ai_confidence_min']}%，不操作")
                     
-                    # 6. 顯示帳戶資訊
+                    # 8. 顯示帳戶資訊
                     with info_placeholder.container():
                         render_account_info(trader)
                     
-                    # 7. 顯示交易歷史
+                    # 9. 顯示交易歷史
                     with trades_placeholder.container():
                         render_trade_history(trader)
                 
                 except Exception as e:
                     with status_placeholder.container():
                         st.error(f"[ERROR] 執行失敗: {e}")
+                        st.code(traceback.format_exc())
             
             else:
                 # 顯示倒數計時
@@ -300,7 +322,7 @@ def render_account_info(trader: BybitDemoTrader):
     balance = summary['balance']
     position = summary['position']
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     col1.metric(
         "總資產",
@@ -318,14 +340,19 @@ def render_account_info(trader: BybitDemoTrader):
         delta=f"{balance['unrealized_pnl']:+.2f}"
     )
     
+    col4.metric(
+        "當前槓框",
+        f"{summary.get('current_leverage', 1)}x"
+    )
+    
     if position:
-        col4.metric(
+        col5.metric(
             "持倉",
             f"{position['side']} {position['size']:.3f}",
             delta=f"{position['unrealized_pnl']:+.2f} USDT"
         )
     else:
-        col4.metric("持倉", "無")
+        col5.metric("持倉", "無")
     
     # 持倉詳情
     if position:
@@ -342,7 +369,7 @@ def render_trade_history(trader: BybitDemoTrader):
     if not df.empty:
         st.dataframe(
             df[[
-                'time', 'side', 'quantity', 
+                'time', 'side', 'quantity', 'leverage',
                 'stop_loss', 'take_profit', 'order_id'
             ]].tail(20),
             use_container_width=True
