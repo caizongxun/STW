@@ -295,15 +295,21 @@ Trading Rules:
 - Risk:Reward ratio must be at least 1:2
 - Consider news sentiment: avoid trades contradicting strong news
 
-IMPORTANT: Respond ONLY with numeric values (no calculations):
+CRITICAL: Return ONLY final numeric values (NO calculations, NO expressions):
+WRONG: "stop_loss": 65505.24 - 284.12 = 65221.12
+WRONG: "take_profit": 65505 + (65505 - 65221)*2 = 66069
+CORRECT: "stop_loss": 65221.12
+CORRECT: "take_profit": 66069.36
+
+Respond in JSON format:
 ```json
 {
   "signal": "LONG" | "SHORT" | "HOLD",
   "confidence": 0-100,
-  "entry_price": <number only>,
-  "stop_loss": <number only>,
-  "take_profit": <number only>,
-  "position_size_pct": <number only>,
+  "entry_price": <final number only>,
+  "stop_loss": <final number only>,
+  "take_profit": <final number only>,
+  "position_size_pct": <final number only>,
   "reasoning": "<concise explanation>",
   "key_risks": ["<risk 1>", "<risk 2>"]
 }
@@ -314,25 +320,31 @@ IMPORTANT: Respond ONLY with numeric values (no calculations):
     
     def _clean_json_math(self, text: str) -> str:
         """
-        清理 JSON 中的數學計算式
-        例: "stop_loss": 65505.24 - 284.12 = 65221.12
-        提取為: "stop_loss": 65221.12
+        清理 JSON 中的數學表達式
+        支持多層計算:
+        - 單層: 65505.24 - 284.12 = 65221.12
+        - 多層: 65505 + (65505 - 65221)*2 = 65505 + 564 = 66069
+        提取最後的結果值
         """
         lines = text.split('\n')
         cleaned_lines = []
         
         for line in lines:
-            # 檢查是否包含計算式 (=)
+            # 檢查是否包含計算式
             if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price']):
-                # 提取 = 後的數字
-                match = re.search(r'=\s*([\d.]+)', line)
-                if match:
-                    result_value = match.group(1)
+                # 找出所有 = 號後的數字 (可能有多個)
+                all_results = re.findall(r'=\s*([\d.]+)', line)
+                
+                if all_results:
+                    # 取最後一個結果 (最終值)
+                    final_value = all_results[-1]
+                    
+                    # 提取欄位名稱
                     field_match = re.search(r'"(\w+)"\s*:', line)
                     if field_match:
                         field_name = field_match.group(1)
                         has_comma = line.rstrip().endswith(',')
-                        new_line = f'  "{field_name}": {result_value}'
+                        new_line = f'  "{field_name}": {final_value}'
                         if has_comma:
                             new_line += ','
                         cleaned_lines.append(new_line)
@@ -343,9 +355,9 @@ IMPORTANT: Respond ONLY with numeric values (no calculations):
         return '\n'.join(cleaned_lines)
     
     def _parse_response(self, response: str) -> Dict:
-        """Parse DeepSeek JSON response with math expression cleaning"""
+        """Parse DeepSeek JSON response with comprehensive cleaning"""
         try:
-            # 步驟1: 清理計算式
+            # 步驟1: 清理多層計算式
             response = self._clean_json_math(response)
             
             # 步驟2: 多重 null 替換
