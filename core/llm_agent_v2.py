@@ -295,16 +295,16 @@ Trading Rules:
 - Risk:Reward ratio must be at least 1:2
 - Consider news sentiment: avoid trades contradicting strong news
 
-Respond in JSON format:
+IMPORTANT: Respond ONLY with numeric values (no calculations):
 ```json
 {
   "signal": "LONG" | "SHORT" | "HOLD",
   "confidence": 0-100,
-  "entry_price": <precise entry price>,
-  "stop_loss": <ATR-based stop loss>,
-  "take_profit": <profit target (min 1:2 RR)>,
-  "position_size_pct": <recommended position size %>,
-  "reasoning": "<concise explanation with matched case features>",
+  "entry_price": <number only>,
+  "stop_loss": <number only>,
+  "take_profit": <number only>,
+  "position_size_pct": <number only>,
+  "reasoning": "<concise explanation>",
   "key_risks": ["<risk 1>", "<risk 2>"]
 }
 ```
@@ -312,26 +312,59 @@ Respond in JSON format:
         
         return prompt
     
+    def _clean_json_math(self, text: str) -> str:
+        """
+        清理 JSON 中的數學計算式
+        例: "stop_loss": 65505.24 - 284.12 = 65221.12
+        提取為: "stop_loss": 65221.12
+        """
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # 檢查是否包含計算式 (=)
+            if '=' in line and any(field in line for field in ['stop_loss', 'take_profit', 'entry_price']):
+                # 提取 = 後的數字
+                match = re.search(r'=\s*([\d.]+)', line)
+                if match:
+                    result_value = match.group(1)
+                    field_match = re.search(r'"(\w+)"\s*:', line)
+                    if field_match:
+                        field_name = field_match.group(1)
+                        has_comma = line.rstrip().endswith(',')
+                        new_line = f'  "{field_name}": {result_value}'
+                        if has_comma:
+                            new_line += ','
+                        cleaned_lines.append(new_line)
+                        continue
+            
+            cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines)
+    
     def _parse_response(self, response: str) -> Dict:
-        """Parse DeepSeek JSON response with null handling"""
+        """Parse DeepSeek JSON response with math expression cleaning"""
         try:
-            # 步驟1: 多重 null 替換
+            # 步驟1: 清理計算式
+            response = self._clean_json_math(response)
+            
+            # 步驟2: 多重 null 替換
             response = re.sub(r'\s+', ' ', response)
             response = re.sub(r'\bnull\b', '0.0', response, flags=re.IGNORECASE)
             response = re.sub(r':\s*null', ': 0.0', response, flags=re.IGNORECASE)
             response = response.replace('null', '0.0')
             
-            # 步驟2: 提取JSON
+            # 步驟3: 提取JSON
             json_match = re.search(r'\{[\s\S]*?\}', response)
             if json_match:
                 json_str = json_match.group(0)
             else:
                 json_str = response.strip()
             
-            # 步驟3: 解析
+            # 步驟4: 解析
             decision = json.loads(json_str)
             
-            # 步驟4: 安全轉型
+            # 步驟5: 安全轉型
             for field in ['confidence', 'entry_price', 'stop_loss', 'take_profit']:
                 val = decision.get(field)
                 decision[field] = float(val) if val is not None else 0.0
