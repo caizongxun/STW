@@ -1,14 +1,13 @@
 """
 Bybit 自動交易 UI
-支援 Demo Trading / Testnet / Mainnet
+支持 Demo Trading / Testnet / Mainnet
 整合倉位感知 AI
 """
 import streamlit as st
 import time
 from datetime import datetime
 import traceback
-import sys
-import io
+import json
 
 from core.bybit_trader import BybitDemoTrader
 from core.data_loader import DataLoader
@@ -23,7 +22,7 @@ def render_bybit_demo_tab():
     **智能特性**：
     - AI 能讀取當前倉位、本金、浮盈浮虧
     - 根據市場波動度動態調整槓框 (1-10x)
-    - 支援多種操作：開倉/平倉/加倉/減倉/觀望
+    - 支持多種操作：開倉/平倉/加倉/減倉/觀望
     - 智能風控：不超過可用餘額的 30%
     """)
     
@@ -124,12 +123,9 @@ def render_bybit_demo_tab():
                 st.error("[ERROR] 請先輸入 API Key 和 Secret")
             else:
                 with st.spinner(f"正在連線 Bybit {mode.upper()}..."):
-                    # 捕捉 print 輸出
-                    debug_output = io.StringIO()
-                    old_stdout = sys.stdout
-                    sys.stdout = debug_output
-                    
                     try:
+                        st.info(f"🔧 初始化參數: testnet={mode=='testnet'}, demo={mode=='demo'}")
+                        
                         trader = BybitDemoTrader(
                             api_key=api_key,
                             api_secret=api_secret,
@@ -138,37 +134,42 @@ def render_bybit_demo_tab():
                             max_leverage=max_leverage
                         )
                         
+                        st.info("📊 測試 API 請求...")
+                        
+                        # 直接調用 API 並顯示返回結果
+                        try:
+                            result_unified = trader.session.get_wallet_balance(
+                                accountType="UNIFIED",
+                                coin="USDT"
+                            )
+                            
+                            with st.expander("📦 UNIFIED API 返回"):
+                                st.json(result_unified)
+                        except Exception as e:
+                            st.error(f"❌ UNIFIED 失敗: {e}")
+                        
                         balance = trader.get_balance()
-                        
-                        # 恢復 stdout
-                        sys.stdout = old_stdout
-                        debug_text = debug_output.getvalue()
-                        
-                        # 顯示 debug 輸出
-                        if debug_text:
-                            with st.expander("[DEBUG] 詳細訊息"):
-                                st.code(debug_text, language="text")
                         
                         if balance['total_equity'] > 0:
                             mode_name = trader.get_account_summary()['mode']
-                            st.success(f"[OK] {mode_name} 連線成功! 餘額: ${balance['total_equity']:,.2f} USDT")
+                            st.success(f"✅ {mode_name} 連線成功! 餘額: ${balance['total_equity']:,.2f} USDT")
                             st.session_state['bybit_trader'] = trader
                         else:
-                            if mode == 'demo':
-                                st.warning("[WARNING] 連線成功但餘額為 0，請到 bybit.com > Assets > Demo Trading 領取模擬資金")
-                            elif mode == 'testnet':
-                                st.warning("[WARNING] 連線成功但餘額為 0，請到 testnet.bybit.com 領取模擬資金")
-                            else:
-                                st.error("[ERROR] 餘額不足，請充值")
+                            st.warning(f"⚠️ 連線成功但餘額為 0")
+                            st.info("嘗試讀取 CONTRACT 帳戶...")
+                            
+                            try:
+                                result_contract = trader.session.get_wallet_balance(
+                                    accountType="CONTRACT",
+                                    coin="USDT"
+                                )
+                                
+                                with st.expander("📦 CONTRACT API 返回"):
+                                    st.json(result_contract)
+                            except Exception as e2:
+                                st.error(f"❌ CONTRACT 失敗: {e2}")
                             
                     except Exception as e:
-                        sys.stdout = old_stdout
-                        debug_text = debug_output.getvalue()
-                        
-                        if debug_text:
-                            with st.expander("[DEBUG] 詳細訊息"):
-                                st.code(debug_text, language="text")
-                        
                         st.error(f"[ERROR] 連線失敗: {e}")
                         st.code(traceback.format_exc())
     
@@ -214,7 +215,6 @@ def render_bybit_demo_tab():
     if st.session_state.get('bybit_running'):
         config = st.session_state['bybit_config']
         
-        # 初始化交易器
         if 'bybit_trader' not in st.session_state:
             trader = BybitDemoTrader(
                 api_key=config['api_key'],
@@ -227,30 +227,25 @@ def render_bybit_demo_tab():
         else:
             trader = st.session_state['bybit_trader']
         
-        # 初始化 AI 引擎
         if 'bybit_ai_agent' not in st.session_state:
             st.session_state['bybit_ai_agent'] = PositionAwareDeepSeekAgent()
         
         ai_agent = st.session_state['bybit_ai_agent']
         data_loader = DataLoader()
         
-        # 實時顯示區
         status_placeholder = st.empty()
         info_placeholder = st.empty()
         trades_placeholder = st.empty()
         
-        # 初始化計時器
         if 'last_update_time' not in st.session_state:
             st.session_state['last_update_time'] = 0
         
-        # 導入 prepare_market_features (延遲導入避免循環)
         from strategies.v13 import prepare_market_features
         
         while st.session_state.get('bybit_running'):
             current_time = time.time()
             elapsed_minutes = (current_time - st.session_state['last_update_time']) / 60
             
-            # 檢查是否需要更新
             if elapsed_minutes >= config['update_interval']:
                 st.session_state['last_update_time'] = current_time
                 
@@ -258,29 +253,20 @@ def render_bybit_demo_tab():
                     st.info(f"[UPDATE] {datetime.now().strftime('%H:%M:%S')} - 正在獲取 AI 訊號...")
                 
                 try:
-                    # 1. 獲取最新市場數據
                     df = data_loader.load_data(config['symbol'], '15m')
                     
                     if df is not None and len(df) > 200:
-                        # 2. 計算技術指標
                         market_data = prepare_market_features(df.iloc[-1], df)
-                        
-                        # 3. 獲取帳戶資訊
                         account_info = trader.get_account_info()
-                        
-                        # 4. 獲取持倉資訊
                         position_info = trader.get_position()
                         
-                        # 5. AI 分析
                         decision = ai_agent.analyze_with_position(
                             market_data=market_data,
                             account_info=account_info,
                             position_info=position_info
                         )
                         
-                        # 6. 檢查信心度
                         if decision.get('confidence', 0) >= config['ai_confidence_min']:
-                            # 7. 執行交易
                             result = trader.execute_ai_decision(
                                 decision=decision,
                                 market_data=market_data
@@ -297,11 +283,9 @@ def render_bybit_demo_tab():
                             with status_placeholder.container():
                                 st.warning(f"[SKIP] AI 信心度 {decision.get('confidence', 0)}% < {config['ai_confidence_min']}%，不操作")
                     
-                    # 8. 顯示帳戶資訊
                     with info_placeholder.container():
                         render_account_info(trader)
                     
-                    # 9. 顯示交易歷史
                     with trades_placeholder.container():
                         render_trade_history(trader)
                 
@@ -311,22 +295,18 @@ def render_bybit_demo_tab():
                         st.code(traceback.format_exc())
             
             else:
-                # 顯示倒數計時
                 remaining = config['update_interval'] - elapsed_minutes
                 with status_placeholder.container():
                     st.info(f"[WAITING] 下次更新剩餘: {remaining:.1f} 分鐘")
                 
-                # 顯示當前資訊
                 with info_placeholder.container():
                     render_account_info(trader)
                 
                 with trades_placeholder.container():
                     render_trade_history(trader)
             
-            # 每 5 秒刷新一次
             time.sleep(5)
     
-    # === 停止狀態 ===
     elif 'bybit_trader' in st.session_state:
         st.info("[PAUSED] 自動交易已停止")
         
@@ -376,7 +356,6 @@ def render_account_info(trader: BybitDemoTrader):
     else:
         col5.metric("持倉", "無")
     
-    # 持倉詳情
     if position:
         with st.expander("[POSITION] 持倉詳情"):
             st.json(position)
