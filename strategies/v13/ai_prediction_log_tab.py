@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 from core.data_loader import DataLoader
-from strategies.v13 import prepare_market_features
+from .market_features import prepare_market_features
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
 
 
