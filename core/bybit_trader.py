@@ -36,7 +36,7 @@ class BybitDemoTrader:
                 - 'testnet': Testnet (測試網)
                 - 'mainnet': Mainnet (真實盤)
             symbol: 交易對 (例如 BTCUSDT)
-            max_leverage: 最大槓桿倍數 (1-100)
+            max_leverage: 最大槓框倍數 (1-100)
         """
         self.symbol = symbol
         self.max_leverage = max_leverage
@@ -64,8 +64,6 @@ class BybitDemoTrader:
             api_secret=api_secret
         )
         
-        print(f"[BYBIT] 初始化: testnet={testnet}, demo={demo}")
-        
         # 狀態追蹤
         self.current_position = None
         self.current_leverage = 1
@@ -86,14 +84,11 @@ class BybitDemoTrader:
             
             if result['retCode'] == 0:
                 self.current_leverage = leverage
-                print(f"[BYBIT] 槓框設置為 {leverage}x")
                 return True
             else:
-                print(f"[BYBIT] 設置槓框失敗: {result['retMsg']}")
                 return False
                 
         except Exception as e:
-            print(f"[BYBIT] 設置槓框失敗: {e}")
             return False
     
     def get_balance(self) -> Dict:
@@ -108,7 +103,6 @@ class BybitDemoTrader:
             }
         """
         try:
-            # 嘗試 UNIFIED 帳戶
             result = self.session.get_wallet_balance(
                 accountType="UNIFIED",
                 coin="USDT"
@@ -116,22 +110,31 @@ class BybitDemoTrader:
             
             if result['retCode'] == 0 and result['result']['list']:
                 account_info = result['result']['list'][0]
-                usdt_info = next(
-                    (coin for coin in account_info['coin'] if coin['coin'] == 'USDT'),
-                    None
-                )
                 
-                if usdt_info:
+                # 從 coin 陣列中找到 USDT
+                usdt_coin = None
+                for coin_data in account_info.get('coin', []):
+                    if coin_data.get('coin') == 'USDT':
+                        usdt_coin = coin_data
+                        break
+                
+                if usdt_coin:
                     return {
-                        'total_equity': float(usdt_info['equity']),
-                        'available_balance': float(usdt_info['availableToWithdraw']),
-                        'unrealized_pnl': float(usdt_info['unrealisedPnl'])
+                        'total_equity': float(usdt_coin.get('equity', 0)),
+                        'available_balance': float(usdt_coin.get('walletBalance', 0)),
+                        'unrealized_pnl': float(usdt_coin.get('unrealisedPnl', 0))
+                    }
+                else:
+                    # 如果 coin 陣列為空，嘗試從 account 層級讀取
+                    return {
+                        'total_equity': float(account_info.get('totalEquity', 0)),
+                        'available_balance': float(account_info.get('totalAvailableBalance', 0)),
+                        'unrealized_pnl': float(account_info.get('totalPerpUPL', 0))
                     }
             
             return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
             
         except Exception as e:
-            print(f"[BYBIT] 獲取餘額失敗: {e}")
             return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
     
     def get_position(self) -> Optional[Dict]:
@@ -161,7 +164,6 @@ class BybitDemoTrader:
             return None
             
         except Exception as e:
-            print(f"[BYBIT] 獲取持倉失敗: {e}")
             return None
     
     def get_current_price(self) -> float:
@@ -178,7 +180,6 @@ class BybitDemoTrader:
             return 0.0
             
         except Exception as e:
-            print(f"[BYBIT] 獲取價格失敗: {e}")
             return 0.0
     
     def get_account_info(self) -> Dict:
@@ -267,13 +268,11 @@ class BybitDemoTrader:
             
             result = self.session.set_trading_stop(**params)
             
-            if result['retCode'] == 0:
-                print(f"[BYBIT] 止損止盈設置成功: SL={stop_loss}, TP={take_profit}")
-            else:
-                print(f"[BYBIT] 設置失敗: {result['retMsg']}")
+            if result['retCode'] != 0:
+                pass
                 
         except Exception as e:
-            print(f"[BYBIT] 設置止損止盈失敗: {e}")
+            pass
     
     def close_position(self, size: Optional[float] = None) -> Dict:
         """平倉當前持倉"""
