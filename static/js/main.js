@@ -1,12 +1,9 @@
 /**
  * 主 JavaScript 邏輯
- * 處理 Tab 切換、WebSocket 連接、API 請求
  */
 
-// WebSocket 連接
 const socket = io();
 
-// 全局狀態
 const state = {
     currentTab: 'signal',
     isAnalyzing: false,
@@ -14,7 +11,6 @@ const state = {
     latestSignal: null
 };
 
-// DOM 元素
 const elements = {
     navItems: document.querySelectorAll('.nav-item'),
     tabContents: document.querySelectorAll('.tab-content'),
@@ -24,7 +20,6 @@ const elements = {
     loadingOverlay: document.getElementById('loadingOverlay'),
     loadingText: document.getElementById('loadingText'),
     
-    // Signal Tab
     symbolSelect: document.getElementById('symbolSelect'),
     timeframeSelect: document.getElementById('timeframeSelect'),
     capitalInput: document.getElementById('capitalInput'),
@@ -38,8 +33,6 @@ const elements = {
     backtestContent: document.getElementById('backtestContent')
 };
 
-// ============= 初始化 =============
-
 function init() {
     setupEventListeners();
     setupWebSocket();
@@ -48,23 +41,17 @@ function init() {
 }
 
 function setupEventListeners() {
-    // Tab 切換
     elements.navItems.forEach(item => {
         item.addEventListener('click', () => {
-            const tabName = item.dataset.tab;
-            switchTab(tabName);
+            switchTab(item.dataset.tab);
         });
     });
     
-    // 信心度滑桿
     elements.confidenceSlider.addEventListener('input', (e) => {
         elements.confidenceValue.textContent = e.target.value + '%';
     });
     
-    // 分析按鈕
     elements.analyzeBtn.addEventListener('click', analyzeMarket);
-    
-    // 回測按鈕
     elements.backtestBtn.addEventListener('click', runBacktest);
 }
 
@@ -79,10 +66,6 @@ function setupWebSocket() {
         updateConnectionStatus(false);
     });
     
-    socket.on('connected', (data) => {
-        console.log('Server message:', data.message);
-    });
-    
     socket.on('signal_updated', (data) => {
         console.log('Signal updated:', data);
         state.latestSignal = data;
@@ -90,12 +73,9 @@ function setupWebSocket() {
     });
 }
 
-// ============= UI 更新 =============
-
 function switchTab(tabName) {
     state.currentTab = tabName;
     
-    // 更新導航項
     elements.navItems.forEach(item => {
         if (item.dataset.tab === tabName) {
             item.classList.add('active');
@@ -104,7 +84,6 @@ function switchTab(tabName) {
         }
     });
     
-    // 更新內容區
     elements.tabContents.forEach(content => {
         if (content.id === `${tabName}-tab`) {
             content.classList.add('active');
@@ -138,6 +117,23 @@ function updateTime() {
     elements.currentTime.textContent = timeString;
 }
 
+// 模塊級 loading
+function showCardLoading(cardId, text = '處理中...') {
+    const loading = document.getElementById(cardId);
+    if (loading) {
+        loading.querySelector('.card-loading-text').textContent = text;
+        loading.classList.add('active');
+    }
+}
+
+function hideCardLoading(cardId) {
+    const loading = document.getElementById(cardId);
+    if (loading) {
+        loading.classList.remove('active');
+    }
+}
+
+// 全局 loading (只用於極特殊情況)
 function showLoading(message = '處理中...') {
     elements.loadingText.textContent = message;
     elements.loadingOverlay.classList.add('active');
@@ -148,29 +144,24 @@ function hideLoading() {
 }
 
 function showError(message) {
-    alert('❌ 錯誤: ' + message);
+    alert('錯誤: ' + message);
 }
 
 function showSuccess(message) {
-    // 可以改用 toast 通知
-    console.log('✅ 成功:', message);
+    console.log('成功:', message);
 }
-
-// ============= API 請求 =============
 
 async function analyzeMarket() {
     if (state.isAnalyzing) return;
     
     state.isAnalyzing = true;
     elements.analyzeBtn.disabled = true;
-    showLoading('🤖 AI 分析中...預計 10-20 秒');
+    showCardLoading('resultCardLoading', 'AI 分析中...');
     
     try {
         const response = await fetch('/api/analyze', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 symbol: elements.symbolSelect.value,
                 timeframe: elements.timeframeSelect.value
@@ -192,7 +183,7 @@ async function analyzeMarket() {
     } finally {
         state.isAnalyzing = false;
         elements.analyzeBtn.disabled = false;
-        hideLoading();
+        hideCardLoading('resultCardLoading');
     }
 }
 
@@ -246,7 +237,7 @@ function displaySignal(data) {
             
             ${decision.reasoning ? `
             <div class="signal-reasoning">
-                <h5>🧠 AI 推理</h5>
+                <h5>AI 推理</h5>
                 <p>${decision.reasoning.substring(0, 300)}...</p>
             </div>
             ` : ''}
@@ -258,11 +249,11 @@ function displaySignal(data) {
 
 function getActionText(action) {
     const actionMap = {
-        'OPEN_LONG': '📈 看多訊號',
-        'OPEN_SHORT': '📉 看空訊號',
-        'ADD_POSITION': '➕ 加倉',
-        'CLOSE': '❌ 平倉',
-        'HOLD': '⏸️ 觀望'
+        'OPEN_LONG': '看多訊號',
+        'OPEN_SHORT': '看空訊號',
+        'ADD_POSITION': '加倉',
+        'CLOSE': '平倉',
+        'HOLD': '觀望'
     };
     return actionMap[action] || action;
 }
@@ -272,14 +263,13 @@ async function runBacktest() {
     
     state.isBacktesting = true;
     elements.backtestBtn.disabled = true;
-    showLoading('📊 回測中...請稍候');
+    showCardLoading('backtestCardLoading', '回測中...');
+    elements.backtestResults.style.display = 'block';
     
     try {
         const response = await fetch('/api/backtest', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 symbol: elements.symbolSelect.value,
                 timeframe: elements.timeframeSelect.value,
@@ -303,7 +293,7 @@ async function runBacktest() {
     } finally {
         state.isBacktesting = false;
         elements.backtestBtn.disabled = false;
-        hideLoading();
+        hideCardLoading('backtestCardLoading');
     }
 }
 
@@ -331,31 +321,9 @@ function displayBacktestResults(results) {
                 </div>
             </div>
         </div>
-        
-        <div class="stats-grid" style="margin-top: 16px;">
-            <div class="stat-card">
-                <div class="stat-label">Sharpe Ratio</div>
-                <div class="stat-value">${results.sharpe_ratio.toFixed(2)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">盈虧比</div>
-                <div class="stat-value">${results.profit_factor.toFixed(2)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">平均持倉</div>
-                <div class="stat-value">${results.avg_holding_hours.toFixed(1)}h</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">月報酬</div>
-                <div class="stat-value">${results.monthly_return.toFixed(2)}%</div>
-            </div>
-        </div>
     `;
     
     elements.backtestContent.innerHTML = html;
-    elements.backtestResults.style.display = 'block';
 }
-
-// ============= 啟動 =============
 
 document.addEventListener('DOMContentLoaded', init);
