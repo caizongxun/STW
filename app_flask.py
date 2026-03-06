@@ -9,6 +9,8 @@ import threading
 import time
 from datetime import datetime
 import json
+import os
+from typing import Dict, Optional
 
 from core.realtime_data_loader import RealtimeDataLoader
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
@@ -22,6 +24,9 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
+# 配置檔案路徑
+CONFIG_FILE = 'config.json'
+
 app_state = {
     'ai_agent': None,
     'data_loader': None,
@@ -31,13 +36,73 @@ app_state = {
     'latest_signal': None,
     'bybit_trader': None,
     'bybit_trading': False,
-    'bybit_thread': None
+    'bybit_thread': None,
+    'user_config': {}
 }
+
+
+def load_config():
+    """載入使用者配置"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                app_state['user_config'] = config
+                print(f"配置已載入: {CONFIG_FILE}")
+                return config
+        except Exception as e:
+            print(f"載入配置失敗: {e}")
+    return {}
+
+
+def save_config(config: Dict):
+    """保存使用者配置"""
+    try:
+        app_state['user_config'] = config
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        print(f"配置已保存: {CONFIG_FILE}")
+        return True
+    except Exception as e:
+        print(f"保存配置失敗: {e}")
+        return False
 
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/config/get', methods=['GET'])
+def get_config():
+    """獲取使用者配置"""
+    return jsonify(app_state['user_config'])
+
+
+@app.route('/api/config/save', methods=['POST'])
+def save_user_config():
+    """保存使用者配置"""
+    try:
+        config = request.json
+        
+        # 不保存敏感資訊的明文 (只保存模糊化的 API key)
+        if 'bybit_api_key' in config and config['bybit_api_key']:
+            # 只保存前 8 和後 4 位
+            api_key = config['bybit_api_key']
+            if len(api_key) > 12:
+                config['bybit_api_key_hint'] = f"{api_key[:8]}...{api_key[-4:]}"
+                config['bybit_api_key_saved'] = True
+                del config['bybit_api_key']  # 不存儲完整 key
+        
+        if 'bybit_api_secret' in config and config['bybit_api_secret']:
+            config['bybit_api_secret_saved'] = True
+            del config['bybit_api_secret']  # 不存儲 secret
+        
+        save_config(config)
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -46,7 +111,7 @@ def analyze_market():
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
         timeframe = data.get('timeframe', '15m')
-        auto_log = data.get('auto_log', False)  # 是否自動記錄
+        auto_log = data.get('auto_log', False)
         
         if not app_state['data_loader']:
             app_state['data_loader'] = RealtimeDataLoader()
@@ -61,7 +126,6 @@ def analyze_market():
         if not app_state['ai_agent']:
             app_state['ai_agent'] = PositionAwareDeepSeekAgent()
         
-        # 獲取帳戶資訊
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
             position_info = app_state['bybit_trader'].get_position()
@@ -91,7 +155,6 @@ def analyze_market():
             'decision': decision
         }
         
-        # 如果啟用自動記錄，保存 AI 預測
         if auto_log:
             _save_ai_prediction_log(
                 timestamp=timestamp,
@@ -151,7 +214,6 @@ def run_backtest():
 
 @app.route('/api/ai-log/update', methods=['POST'])
 def update_ai_log():
-    """手動觸發 AI 預測記錄"""
     try:
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
@@ -171,7 +233,6 @@ def update_ai_log():
         current_candle = df.iloc[-1]
         market_data = prepare_market_features(current_candle, df)
         
-        # 獲取帳戶資訊
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
             position_info = app_state['bybit_trader'].get_position()
@@ -290,10 +351,6 @@ def handle_stop_bybit_trading():
 
 
 def bybit_trading_worker(config):
-    """
-    Bybit 自動交易工作執行緒
-    每 15 分鐘執行一次，自動記錄 AI 預測
-    """
     print("\n=" * 50)
     print("Bybit 自動交易已啟動")
     print("=" * 50)
@@ -317,7 +374,6 @@ def bybit_trading_worker(config):
             if not app_state['ai_agent']:
                 app_state['ai_agent'] = PositionAwareDeepSeekAgent()
             
-            # 獲取數據
             df = app_state['data_loader'].load_data(symbol, timeframe)
             
             if df is not None and len(df) > 200:
@@ -326,14 +382,12 @@ def bybit_trading_worker(config):
                 account_info = trader.get_account_info()
                 position_info = trader.get_position()
                 
-                # AI 分析
                 decision = app_state['ai_agent'].analyze_with_position(
                     market_data=market_data,
                     account_info=account_info,
                     position_info=position_info
                 )
                 
-                # 保存 AI 預測記錄
                 _save_ai_prediction_log(
                     timestamp=current_candle['timestamp'],
                     symbol=symbol,
@@ -343,12 +397,10 @@ def bybit_trading_worker(config):
                     market_data=market_data
                 )
                 
-                # 執行交易
                 result = trader.execute_ai_decision(decision, market_data)
                 
                 print(f"\n交易執行: {result['action']} - {result['message']}")
                 
-                # 發送更新到前端
                 socketio.emit('bybit_trade_executed', {
                     'action': result['action'],
                     'message': result['message'],
@@ -361,7 +413,6 @@ def bybit_trading_worker(config):
                     'logs': app_state['ai_prediction_logs']
                 })
             
-            # 等待 15 分鐘 (900 秒)
             print(f"\n等待下次執行 (15 分鐘後)...")
             time.sleep(900)
             
@@ -384,9 +435,6 @@ def _save_ai_prediction_log(
     decision: Dict,
     market_data: Dict
 ):
-    """
-    保存 AI 預測記錄
-    """
     log_entry = {
         'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
         'symbol': symbol,
@@ -403,24 +451,20 @@ def _save_ai_prediction_log(
         'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
         'actual_direction': None,
         'is_correct': None,
-        # 添加技術指標
         'rsi': market_data.get('rsi'),
         'macd_hist': market_data.get('macd_hist'),
         'bb_position': market_data.get('bb_position'),
         'adx': market_data.get('adx')
     }
     
-    # 更新前一筆的準確度
     if app_state['ai_prediction_logs']:
         _update_previous_log_accuracy(
             app_state['ai_prediction_logs'],
             price
         )
     
-    # 添加新記錄
     app_state['ai_prediction_logs'].append(log_entry)
     
-    # 保持最近 100 筆記錄
     if len(app_state['ai_prediction_logs']) > 100:
         app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
     
@@ -440,22 +484,17 @@ def _get_direction_from_action(action: str) -> str:
 
 
 def _update_previous_log_accuracy(logs: list, current_price: float):
-    """
-    更新前一筆記錄的預測準確度
-    """
     if len(logs) < 1:
         return
     
     prev_log = logs[-1]
     
-    # 已經驗證過
     if prev_log['is_correct'] is not None:
         return
     
     prev_price = prev_log['close_price']
     predicted_direction = prev_log['predicted_direction']
     
-    # 計算實際方向 (變動 > 0.1% 才算)
     if current_price > prev_price * 1.001:
         actual_direction = 'UP'
     elif current_price < prev_price * 0.999:
@@ -465,7 +504,6 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
     
     prev_log['actual_direction'] = actual_direction
     
-    # 計算是否準確
     if predicted_direction in ['NEUTRAL', 'CLOSE']:
         prev_log['is_correct'] = None
     else:
@@ -478,6 +516,9 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
 
 
 if __name__ == '__main__':
+    # 啟動時載入配置
+    load_config()
+    
     print("")
     print("=" * 60)
     print("  Flask Server Starting - STW AI Trading System")
@@ -487,6 +528,7 @@ if __name__ == '__main__':
     print("    - Real-time market data from Binance API")
     print("    - WebSocket live updates")
     print("    - Auto AI prediction logging")
+    print("    - Config auto-save & restore")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     print("=" * 60)
