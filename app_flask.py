@@ -11,6 +11,7 @@ from datetime import datetime
 import json
 import os
 from typing import Dict, Optional
+import uuid
 
 from core.realtime_data_loader import RealtimeDataLoader
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
@@ -24,8 +25,8 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# 配置檔案路徑
 CONFIG_FILE = 'config.json'
+CASES_FILE = 'cases.json'
 
 app_state = {
     'ai_agent': None,
@@ -37,12 +38,12 @@ app_state = {
     'bybit_trader': None,
     'bybit_trading': False,
     'bybit_thread': None,
-    'user_config': {}
+    'user_config': {},
+    'cases': []
 }
 
 
 def load_config():
-    """載入使用者配置"""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -56,7 +57,6 @@ def load_config():
 
 
 def save_config(config: Dict):
-    """保存使用者配置"""
     try:
         app_state['user_config'] = config
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -68,6 +68,30 @@ def save_config(config: Dict):
         return False
 
 
+def load_cases():
+    if os.path.exists(CASES_FILE):
+        try:
+            with open(CASES_FILE, 'r', encoding='utf-8') as f:
+                cases = json.load(f)
+                app_state['cases'] = cases
+                print(f"案例已載入: {len(cases)} 筆")
+                return cases
+        except Exception as e:
+            print(f"載入案例失敗: {e}")
+    return []
+
+
+def save_cases():
+    try:
+        with open(CASES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(app_state['cases'], f, indent=2, ensure_ascii=False)
+        print(f"案例已保存: {len(app_state['cases'])} 筆")
+        return True
+    except Exception as e:
+        print(f"保存案例失敗: {e}")
+        return False
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -75,32 +99,69 @@ def index():
 
 @app.route('/api/config/get', methods=['GET'])
 def get_config():
-    """獲取使用者配置"""
     return jsonify(app_state['user_config'])
 
 
 @app.route('/api/config/save', methods=['POST'])
 def save_user_config():
-    """保存使用者配置"""
     try:
         config = request.json
         
-        # 不保存敏感資訊的明文 (只保存模糊化的 API key)
         if 'bybit_api_key' in config and config['bybit_api_key']:
-            # 只保存前 8 和後 4 位
             api_key = config['bybit_api_key']
             if len(api_key) > 12:
                 config['bybit_api_key_hint'] = f"{api_key[:8]}...{api_key[-4:]}"
                 config['bybit_api_key_saved'] = True
-                del config['bybit_api_key']  # 不存儲完整 key
+                del config['bybit_api_key']
         
         if 'bybit_api_secret' in config and config['bybit_api_secret']:
             config['bybit_api_secret_saved'] = True
-            del config['bybit_api_secret']  # 不存儲 secret
+            del config['bybit_api_secret']
         
         save_config(config)
         return jsonify({'success': True})
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/config/reset', methods=['POST'])
+def reset_config():
+    try:
+        app_state['user_config'] = {}
+        if os.path.exists(CONFIG_FILE):
+            os.remove(CONFIG_FILE)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cases/list', methods=['GET'])
+def list_cases():
+    return jsonify({'cases': app_state['cases']})
+
+
+@app.route('/api/cases/add', methods=['POST'])
+def add_case():
+    try:
+        case = request.json
+        case['id'] = str(uuid.uuid4())
+        case['created_at'] = datetime.now().isoformat()
+        
+        app_state['cases'].append(case)
+        save_cases()
+        
+        return jsonify({'success': True, 'case': case})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cases/delete/<case_id>', methods=['DELETE'])
+def delete_case(case_id):
+    try:
+        app_state['cases'] = [c for c in app_state['cases'] if c['id'] != case_id]
+        save_cases()
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -351,7 +412,7 @@ def handle_stop_bybit_trading():
 
 
 def bybit_trading_worker(config):
-    print("\n=" * 50)
+    print("\n" + "=" * 50)
     print("Bybit 自動交易已啟動")
     print("=" * 50)
     
@@ -422,7 +483,7 @@ def bybit_trading_worker(config):
             traceback.print_exc()
             time.sleep(60)
     
-    print("\n=" * 50)
+    print("\n" + "=" * 50)
     print("Bybit 自動交易已停止")
     print("=" * 50)
 
@@ -516,8 +577,8 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
 
 
 if __name__ == '__main__':
-    # 啟動時載入配置
     load_config()
+    load_cases()
     
     print("")
     print("=" * 60)
@@ -529,6 +590,7 @@ if __name__ == '__main__':
     print("    - WebSocket live updates")
     print("    - Auto AI prediction logging")
     print("    - Config auto-save & restore")
+    print("    - Learning cases library")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     print("=" * 60)
