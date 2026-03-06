@@ -133,7 +133,6 @@ function hideCardLoading(cardId) {
     }
 }
 
-// 全局 loading (只用於極特殊情況)
 function showLoading(message = '處理中...') {
     elements.loadingText.textContent = message;
     elements.loadingOverlay.classList.add('active');
@@ -192,70 +191,105 @@ function displaySignal(data) {
     const action = decision.action || 'HOLD';
     const confidence = decision.confidence || 0;
     
+    // 獲取 action 的顯示信息
+    const actionInfo = getActionInfo(action);
+    
     let html = `
-        <div class="signal-card">
-            <div class="signal-header ${action.toLowerCase()}">
-                <h4>${getActionText(action)}</h4>
-                <span class="confidence">信心度: ${confidence}%</span>
+        <div class="signal-result">
+            <div class="signal-header" style="background: ${actionInfo.bgColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h2 style="color: ${actionInfo.textColor}; margin: 0 0 10px 0;">${actionInfo.text}</h2>
+                <p style="color: ${actionInfo.textColor}; margin: 0; font-size: 18px;">信心度: ${confidence}%</p>
             </div>
             
-            <div class="signal-metrics">
-                <div class="metric">
-                    <label>幣種</label>
-                    <value>${data.symbol} (${data.timeframe})</value>
+            <div class="stats-grid" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">幣種</div>
+                    <div class="stat-value" style="font-size: 18px;">${data.symbol}</div>
                 </div>
-                <div class="metric">
-                    <label>當前價格</label>
-                    <value>$${data.price.toLocaleString()}</value>
+                <div class="stat-card">
+                    <div class="stat-label">周期</div>
+                    <div class="stat-value" style="font-size: 18px;">${data.timeframe}</div>
                 </div>
-                <div class="metric">
-                    <label>時間</label>
-                    <value>${new Date(data.timestamp).toLocaleString('zh-TW')}</value>
+                <div class="stat-card">
+                    <div class="stat-label">當前價格</div>
+                    <div class="stat-value" style="font-size: 18px;">$${parseFloat(data.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                 </div>
-            </div>
-            
-            ${decision.stop_loss ? `
-            <div class="signal-details">
-                <div class="detail-item">
-                    <span>止損:</span>
-                    <span>$${decision.stop_loss.toLocaleString()}</span>
-                </div>
-                <div class="detail-item">
-                    <span>止盈:</span>
-                    <span>$${decision.take_profit.toLocaleString()}</span>
-                </div>
-                <div class="detail-item">
-                    <span>倉位:</span>
-                    <span>${decision.position_size_usdt} USDT</span>
-                </div>
-                <div class="detail-item">
-                    <span>桶桿:</span>
-                    <span>${decision.leverage}x</span>
+                <div class="stat-card">
+                    <div class="stat-label">時間</div>
+                    <div class="stat-value" style="font-size: 14px;">${new Date(data.timestamp).toLocaleString('zh-TW')}</div>
                 </div>
             </div>
-            ` : ''}
-            
-            ${decision.reasoning ? `
-            <div class="signal-reasoning">
-                <h5>AI 推理</h5>
-                <p>${decision.reasoning.substring(0, 300)}...</p>
-            </div>
-            ` : ''}
-        </div>
     `;
+    
+    // 如果有止損止盈資訊
+    if (decision.stop_loss && decision.take_profit) {
+        html += `
+            <div class="stats-grid" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">止損</div>
+                    <div class="stat-value" style="font-size: 18px; color: var(--danger-color);">$${parseFloat(decision.stop_loss).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">止盈</div>
+                    <div class="stat-value" style="font-size: 18px; color: var(--success-color);">$${parseFloat(decision.take_profit).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">倉位</div>
+                    <div class="stat-value" style="font-size: 18px;">${decision.position_size_usdt || 0} USDT</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">槓桿</div>
+                    <div class="stat-value" style="font-size: 18px;">${decision.leverage || 1}x</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // AI 推理
+    if (decision.reasoning) {
+        html += `
+            <div style="background: var(--bg-dark); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+                <h4 style="margin: 0 0 12px 0; color: var(--primary-color);">AI 推理</h4>
+                <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">${decision.reasoning.substring(0, 500)}${decision.reasoning.length > 500 ? '...' : ''}</p>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
     
     elements.signalContent.innerHTML = html;
 }
 
-function getActionText(action) {
+function getActionInfo(action) {
     const actionMap = {
-        'OPEN_LONG': '看多訊號',
-        'OPEN_SHORT': '看空訊號',
-        'ADD_POSITION': '加倉',
-        'CLOSE': '平倉',
-        'HOLD': '觀望'
+        'OPEN_LONG': {
+            text: '看多訊號',
+            bgColor: 'rgba(0, 255, 136, 0.15)',
+            textColor: 'var(--success-color)'
+        },
+        'OPEN_SHORT': {
+            text: '看空訊號',
+            bgColor: 'rgba(255, 68, 68, 0.15)',
+            textColor: 'var(--danger-color)'
+        },
+        'ADD_POSITION': {
+            text: '加倉訊號',
+            bgColor: 'rgba(0, 212, 255, 0.15)',
+            textColor: 'var(--primary-color)'
+        },
+        'CLOSE': {
+            text: '平倉訊號',
+            bgColor: 'rgba(255, 170, 0, 0.15)',
+            textColor: 'var(--warning-color)'
+        },
+        'HOLD': {
+            text: '觀望',
+            bgColor: 'rgba(139, 146, 168, 0.15)',
+            textColor: 'var(--text-secondary)'
+        }
     };
-    return actionMap[action] || action;
+    
+    return actionMap[action] || actionMap['HOLD'];
 }
 
 async function runBacktest() {
@@ -319,6 +353,25 @@ function displayBacktestResults(results) {
                 <div class="stat-value" style="color: var(--danger-color)">
                     ${results.max_drawdown.toFixed(2)}%
                 </div>
+            </div>
+        </div>
+        
+        <div class="stats-grid" style="margin-top: 16px;">
+            <div class="stat-card">
+                <div class="stat-label">Sharpe Ratio</div>
+                <div class="stat-value">${results.sharpe_ratio ? results.sharpe_ratio.toFixed(2) : 'N/A'}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">盈虧比</div>
+                <div class="stat-value">${results.profit_factor ? results.profit_factor.toFixed(2) : 'N/A'}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">平均持倉</div>
+                <div class="stat-value">${results.avg_holding_hours ? results.avg_holding_hours.toFixed(1) + 'h' : 'N/A'}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">月報酬</div>
+                <div class="stat-value">${results.monthly_return ? results.monthly_return.toFixed(2) + '%' : 'N/A'}</div>
             </div>
         </div>
     `;
