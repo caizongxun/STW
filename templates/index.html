@@ -6,39 +6,31 @@
     <title>[V13] DeepSeek-R1 AI 交易決策系統</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <!-- 左側邊欄 -->
         <aside class="sidebar">
             <div class="logo">
-                <h2>🤖 STW AI</h2>
+                <h2>STW AI</h2>
             </div>
             
             <nav class="nav-menu">
                 <button class="nav-item active" data-tab="signal">
-                    <span class="icon">📊</span>
                     <span>實時訊號 & 回測</span>
                 </button>
                 <button class="nav-item" data-tab="auto">
-                    <span class="icon">⏰</span>
                     <span>自動更新</span>
                 </button>
                 <button class="nav-item" data-tab="bybit">
-                    <span class="icon">💰</span>
                     <span>Bybit Demo</span>
                 </button>
                 <button class="nav-item" data-tab="ai-log">
-                    <span class="icon">📝</span>
                     <span>AI 預測記錄</span>
                 </button>
                 <button class="nav-item" data-tab="cases">
-                    <span class="icon">📚</span>
                     <span>學習案例庫</span>
                 </button>
                 <button class="nav-item" data-tab="config">
-                    <span class="icon">⚙️</span>
                     <span>設定</span>
                 </button>
             </nav>
@@ -51,9 +43,7 @@
             </div>
         </aside>
         
-        <!-- 主內容區 -->
         <main class="main-content">
-            <!-- 頭部 -->
             <header class="header">
                 <h1>[V13] DeepSeek-R1 AI 交易決策系統</h1>
                 <div class="header-info">
@@ -61,10 +51,9 @@
                 </div>
             </header>
             
-            <!-- Tab 內容 -->
             <div class="tab-content active" id="signal-tab">
                 <div class="info-banner">
-                    <h3>✨ V13 核心特色</h3>
+                    <h3>V13 核心特色</h3>
                     <ul>
                         <li>DeepSeek-R1 14B 本地推理引擎</li>
                         <li>Chain-of-Thought 多步驟推理</li>
@@ -74,9 +63,15 @@
                 </div>
                 
                 <div class="grid-2">
-                    <!-- 左側：設定區 -->
                     <div class="card">
-                        <h3>🔧 設定</h3>
+                        <div class="card-loading" id="signalCardLoading">
+                            <div>
+                                <div class="spinner"></div>
+                                <div class="card-loading-text">處理中...</div>
+                            </div>
+                        </div>
+                        
+                        <h3>設定</h3>
                         
                         <div class="form-group">
                             <label>交易對</label>
@@ -115,47 +110,120 @@
                         
                         <div class="button-group">
                             <button id="analyzeBtn" class="btn btn-primary">
-                                <span>🔍</span> 獲取實時訊號
+                                獲取實時訊號
                             </button>
                             <button id="backtestBtn" class="btn btn-success">
-                                <span>📊</span> 開始回測
+                                開始回測
                             </button>
                         </div>
                     </div>
                     
-                    <!-- 右側：結果區 -->
                     <div class="card">
-                        <h3 id="signalTitle">📊 實時 AI 訊號</h3>
+                        <div class="card-loading" id="resultCardLoading">
+                            <div>
+                                <div class="spinner"></div>
+                                <div class="card-loading-text">處理中...</div>
+                            </div>
+                        </div>
+                        
+                        <h3 id="signalTitle">實時 AI 訊號</h3>
                         <div id="signalContent" class="signal-content">
                             <p class="text-muted">點擊「獲取實時訊號」開始分析</p>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 回測結果 -->
                 <div id="backtestResults" class="card" style="display: none;">
-                    <h3>📊 回測結果</h3>
+                    <div class="card-loading" id="backtestCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>回測結果</h3>
                     <div id="backtestContent"></div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="auto-tab">
-                <div class="card">
-                    <h3>⏰ 自動更新</h3>
-                    <p>功能開發中...</p>
                 </div>
             </div>
             
             <div class="tab-content" id="bybit-tab">
                 <div class="card">
-                    <h3>💰 Bybit Demo 交易</h3>
-                    <p>功能開發中...</p>
+                    <div class="card-loading" id="bybitCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>Bybit Demo 交易</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>AI 能讀取當前倉位、本金、浮盈浮虧</li>
+                            <li>根據市場波動度動態調整桶桿 (1-10x)</li>
+                            <li>支持多種操作：開倉/平倉/加倉/減倉/觀望</li>
+                            <li>智能風控：不超過可用餘額的 30%</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>API Key</label>
+                            <input type="password" id="bybitApiKey" class="form-control" placeholder="輸入 Bybit API Key">
+                        </div>
+                        <div class="form-group">
+                            <label>API Secret</label>
+                            <input type="password" id="bybitApiSecret" class="form-control" placeholder="輸入 API Secret">
+                        </div>
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="bybitSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="bybitTestBtn" class="btn btn-secondary">測試連線</button>
+                        <button id="bybitStartBtn" class="btn btn-success">啟動交易</button>
+                        <button id="bybitStopBtn" class="btn btn-danger">停止交易</button>
+                    </div>
+                    
+                    <div id="bybitAccountInfo" class="stats-grid" style="margin-top: 24px; display: none;">
+                        <div class="stat-card">
+                            <div class="stat-label">總資產</div>
+                            <div class="stat-value" id="bybitTotalEquity">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">可用餘額</div>
+                            <div class="stat-value" id="bybitAvailable">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">未實現盈虧</div>
+                            <div class="stat-value" id="bybitPnl">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">持倉</div>
+                            <div class="stat-value" id="bybitPosition">無</div>
+                        </div>
+                    </div>
+                    
+                    <div id="bybitStatus" style="margin-top: 24px;"></div>
                 </div>
             </div>
             
             <div class="tab-content" id="ai-log-tab">
                 <div class="card">
-                    <h3>📝 AI 預測記錄 & 準確度分析</h3>
+                    <div class="card-loading" id="aiLogCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>AI 預測記錄 & 準確度分析</h3>
                     
                     <div class="info-banner">
                         <ul>
@@ -173,7 +241,6 @@
                                 <option value="BTCUSDT">BTCUSDT</option>
                                 <option value="ETHUSDT">ETHUSDT</option>
                                 <option value="SOLUSDT">SOLUSDT</option>
-                                <option value="BNBUSDT">BNBUSDT</option>
                             </select>
                         </div>
                         
@@ -196,15 +263,9 @@
                     </div>
                     
                     <div class="button-group">
-                        <button id="aiLogUpdateBtn" class="btn btn-primary">
-                            <span>🔄</span> 更新預測
-                        </button>
-                        <button id="aiLogClearBtn" class="btn btn-warning">
-                            <span>🗑️</span> 清除記錄
-                        </button>
-                        <button id="aiLogExportBtn" class="btn btn-secondary">
-                            <span>💾</span> 導出 CSV
-                        </button>
+                        <button id="aiLogUpdateBtn" class="btn btn-primary">更新預測</button>
+                        <button id="aiLogClearBtn" class="btn btn-warning">清除記錄</button>
+                        <button id="aiLogExportBtn" class="btn btn-secondary">導出 CSV</button>
                     </div>
                     
                     <div class="stats-grid" id="aiLogStats">
@@ -249,23 +310,29 @@
                 </div>
             </div>
             
+            <div class="tab-content" id="auto-tab">
+                <div class="card">
+                    <h3>自動更新</h3>
+                    <p>功能開發中...</p>
+                </div>
+            </div>
+            
             <div class="tab-content" id="cases-tab">
                 <div class="card">
-                    <h3>📚 學習案例庫</h3>
+                    <h3>學習案例庫</h3>
                     <p>功能開發中...</p>
                 </div>
             </div>
             
             <div class="tab-content" id="config-tab">
                 <div class="card">
-                    <h3>⚙️ 系統設定</h3>
+                    <h3>系統設定</h3>
                     <p>功能開發中...</p>
                 </div>
             </div>
         </main>
     </div>
     
-    <!-- Loading Overlay -->
     <div id="loadingOverlay" class="loading-overlay">
         <div class="spinner"></div>
         <p id="loadingText">處理中...</p>
@@ -273,5 +340,6 @@
     
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ai_log.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bybit.js') }}"></script>
 </body>
 </html>
