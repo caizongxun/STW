@@ -12,6 +12,7 @@ import json
 
 from core.data_loader import DataLoader
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
+from core.bybit_trader import BybitDemoTrader
 from strategies.v13.market_features import prepare_market_features
 from strategies.v13.config import V13Config
 from strategies.v13.backtester import V13Backtester
@@ -29,21 +30,19 @@ app_state = {
     'auto_update_thread': None,
     'ai_prediction_logs': [],
     'latest_signal': None,
-    'bybit_positions': []
+    'bybit_trader': None,
+    'bybit_trading': False,
+    'bybit_thread': None
 }
 
 
-# ============= 路由 =============
-
 @app.route('/')
 def index():
-    """主頁面"""
     return render_template('index.html')
 
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_market():
-    """獲取實時 AI 訊號"""
     try:
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
@@ -91,7 +90,6 @@ def analyze_market():
 
 @app.route('/api/backtest', methods=['POST'])
 def run_backtest():
-    """執行回測"""
     try:
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
@@ -127,7 +125,6 @@ def run_backtest():
 
 @app.route('/api/ai-log/update', methods=['POST'])
 def update_ai_log():
-    """更新 AI 預測記錄"""
     try:
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
@@ -178,7 +175,6 @@ def update_ai_log():
             'is_correct': None
         }
         
-        # 更新上一筆記錄的準確度
         if app_state['ai_prediction_logs']:
             _update_previous_log_accuracy(
                 app_state['ai_prediction_logs'],
@@ -187,11 +183,9 @@ def update_ai_log():
         
         app_state['ai_prediction_logs'].append(log_entry)
         
-        # 保留最近 20 筆
         if len(app_state['ai_prediction_logs']) > 20:
             app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-20:]
         
-        # 透過 WebSocket 推送更新
         socketio.emit('ai_log_updated', {
             'logs': app_state['ai_prediction_logs'],
             'new_entry': log_entry
@@ -208,7 +202,6 @@ def update_ai_log():
 
 @app.route('/api/ai-log/clear', methods=['POST'])
 def clear_ai_logs():
-    """清除所有 AI 預測記錄"""
     app_state['ai_prediction_logs'] = []
     socketio.emit('ai_log_cleared', {})
     return jsonify({'success': True})
@@ -216,105 +209,119 @@ def clear_ai_logs():
 
 @app.route('/api/ai-log/get', methods=['GET'])
 def get_ai_logs():
-    """獲取所有 AI 預測記錄"""
     return jsonify({
         'logs': app_state['ai_prediction_logs']
     })
 
 
-# ============= WebSocket 事件 =============
+@app.route('/api/bybit/test', methods=['POST'])
+def test_bybit_connection():
+    try:
+        data = request.json
+        api_key = data.get('api_key')
+        api_secret = data.get('api_secret')
+        symbol = data.get('symbol', 'BTCUSDT')
+        
+        trader = BybitDemoTrader(
+            api_key=api_key,
+            api_secret=api_secret,
+            demo_mode='demo',
+            symbol=symbol
+        )
+        
+        balance = trader.get_balance()
+        position = trader.get_position()
+        
+        app_state['bybit_trader'] = trader
+        
+        return jsonify({
+            'success': True,
+            'balance': balance,
+            'position': position
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @socketio.on('connect')
 def handle_connect():
-    """客戶端連接"""
     print('Client connected')
     emit('connected', {'message': 'Connected to server'})
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """客戶端斷開"""
     print('Client disconnected')
 
 
-@socketio.on('start_auto_update')
-def handle_start_auto_update(data):
-    """啟動自動更新"""
-    symbol = data.get('symbol', 'BTCUSDT')
-    timeframe = data.get('timeframe', '15m')
-    interval = data.get('interval', 900)  # 預設 15 分鐘
+@socketio.on('start_bybit_trading')
+def handle_start_bybit_trading(data):
+    app_state['bybit_trading'] = True
     
-    app_state['auto_update_enabled'] = True
-    
-    if app_state['auto_update_thread'] is None or not app_state['auto_update_thread'].is_alive():
+    if app_state['bybit_thread'] is None or not app_state['bybit_thread'].is_alive():
         thread = threading.Thread(
-            target=auto_update_worker,
-            args=(symbol, timeframe, interval),
+            target=bybit_trading_worker,
+            args=(data,),
             daemon=True
         )
         thread.start()
-        app_state['auto_update_thread'] = thread
+        app_state['bybit_thread'] = thread
     
-    emit('auto_update_started', {'symbol': symbol, 'timeframe': timeframe})
+    emit('bybit_trading_started', {})
 
 
-@socketio.on('stop_auto_update')
-def handle_stop_auto_update():
-    """停止自動更新"""
-    app_state['auto_update_enabled'] = False
-    emit('auto_update_stopped', {})
+@socketio.on('stop_bybit_trading')
+def handle_stop_bybit_trading():
+    app_state['bybit_trading'] = False
+    emit('bybit_trading_stopped', {})
 
 
-# ============= 背景任務 =============
-
-def auto_update_worker(symbol, timeframe, interval):
-    """自動更新背景任務"""
-    while app_state['auto_update_enabled']:
+def bybit_trading_worker(config):
+    while app_state['bybit_trading']:
         try:
+            if not app_state['bybit_trader']:
+                time.sleep(5)
+                continue
+            
+            trader = app_state['bybit_trader']
+            
             if not app_state['data_loader']:
                 app_state['data_loader'] = DataLoader()
             
             if not app_state['ai_agent']:
                 app_state['ai_agent'] = PositionAwareDeepSeekAgent()
             
-            df = app_state['data_loader'].load_data(symbol, timeframe)
+            df = app_state['data_loader'].load_data(config['symbol'], '15m')
             
             if df is not None and len(df) > 200:
-                current_candle = df.iloc[-1]
-                market_data = prepare_market_features(current_candle, df)
-                
-                account_info = {
-                    'total_equity': 10000,
-                    'available_balance': 10000,
-                    'unrealized_pnl': 0,
-                    'max_leverage': 10
-                }
+                market_data = prepare_market_features(df.iloc[-1], df)
+                account_info = trader.get_account_info()
+                position_info = trader.get_position()
                 
                 decision = app_state['ai_agent'].analyze_with_position(
                     market_data=market_data,
                     account_info=account_info,
-                    position_info=None
+                    position_info=position_info
                 )
                 
-                # 透過 WebSocket 推送即時訊號
-                socketio.emit('signal_updated', {
-                    'symbol': symbol,
-                    'timeframe': timeframe,
-                    'timestamp': datetime.now().isoformat(),
-                    'price': market_data['close'],
-                    'decision': decision
+                result = trader.execute_ai_decision(decision, market_data)
+                
+                socketio.emit('bybit_trade_executed', {
+                    'action': result['action'],
+                    'message': result['message'],
+                    'balance': trader.get_balance(),
+                    'position': trader.get_position()
                 })
             
+            time.sleep(900)  # 15 分鐘
+            
         except Exception as e:
-            print(f"Auto update error: {e}")
-        
-        time.sleep(interval)
+            print(f"Bybit trading error: {e}")
+            time.sleep(60)
 
-
-# ============= 輔助函數 =============
 
 def _get_direction_from_action(action: str) -> str:
-    """從動作推斷預測方向"""
     if action in ['OPEN_LONG', 'ADD_POSITION']:
         return 'UP'
     elif action in ['OPEN_SHORT']:
@@ -326,7 +333,6 @@ def _get_direction_from_action(action: str) -> str:
 
 
 def _update_previous_log_accuracy(logs: list, current_price: float):
-    """更新上一筆記錄的準確度"""
     if len(logs) < 2:
         return
     
@@ -354,6 +360,6 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
 
 
 if __name__ == '__main__':
-    print("🚀 Flask Server Starting...")
-    print("📡 Access at: http://localhost:5000")
+    print("Flask Server Starting...")
+    print("Access at: http://localhost:5000")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
