@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 import json
 
-from core.data_loader import DataLoader
+from core.realtime_data_loader import RealtimeDataLoader
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
 from core.bybit_trader import BybitDemoTrader
 from strategies.v13.market_features import prepare_market_features
@@ -22,7 +22,6 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# 全局狀態管理
 app_state = {
     'ai_agent': None,
     'data_loader': None,
@@ -49,7 +48,7 @@ def analyze_market():
         timeframe = data.get('timeframe', '15m')
         
         if not app_state['data_loader']:
-            app_state['data_loader'] = DataLoader()
+            app_state['data_loader'] = RealtimeDataLoader()
         
         df = app_state['data_loader'].load_data(symbol, timeframe)
         
@@ -74,17 +73,23 @@ def analyze_market():
             position_info=None
         )
         
+        latest_price = float(df['close'].iloc[-1])
+        
         app_state['latest_signal'] = {
             'symbol': symbol,
             'timeframe': timeframe,
-            'timestamp': datetime.now().isoformat(),
-            'price': latest_data['close'],
+            'timestamp': df['timestamp'].iloc[-1].isoformat(),
+            'price': latest_price,
             'decision': decision
         }
+        
+        print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
         
         return jsonify(app_state['latest_signal'])
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -107,9 +112,9 @@ def run_backtest():
         )
         
         if not app_state['data_loader']:
-            app_state['data_loader'] = DataLoader()
+            app_state['data_loader'] = RealtimeDataLoader()
         
-        df = app_state['data_loader'].load_data(symbol, timeframe)
+        df = app_state['data_loader'].load_data(symbol, timeframe, limit=1000)
         
         if df is None or df.empty:
             return jsonify({'error': '無法載入數據'}), 400
@@ -120,6 +125,8 @@ def run_backtest():
         return jsonify(results)
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -131,7 +138,7 @@ def update_ai_log():
         timeframe = data.get('timeframe', '15m')
         
         if not app_state['data_loader']:
-            app_state['data_loader'] = DataLoader()
+            app_state['data_loader'] = RealtimeDataLoader()
         
         if not app_state['ai_agent']:
             app_state['ai_agent'] = PositionAwareDeepSeekAgent()
@@ -197,6 +204,8 @@ def update_ai_log():
         })
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -241,6 +250,8 @@ def test_bybit_connection():
         })
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -287,7 +298,7 @@ def bybit_trading_worker(config):
             trader = app_state['bybit_trader']
             
             if not app_state['data_loader']:
-                app_state['data_loader'] = DataLoader()
+                app_state['data_loader'] = RealtimeDataLoader()
             
             if not app_state['ai_agent']:
                 app_state['ai_agent'] = PositionAwareDeepSeekAgent()
@@ -314,10 +325,12 @@ def bybit_trading_worker(config):
                     'position': trader.get_position()
                 })
             
-            time.sleep(900)  # 15 分鐘
+            time.sleep(900)
             
         except Exception as e:
             print(f"Bybit trading error: {e}")
+            import traceback
+            traceback.print_exc()
             time.sleep(60)
 
 
@@ -360,6 +373,16 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
 
 
 if __name__ == '__main__':
-    print("Flask Server Starting...")
-    print("Access at: http://localhost:5000")
+    print("")
+    print("=" * 60)
+    print("  Flask Server Starting - STW AI Trading System")
+    print("=" * 60)
+    print("  Access at: http://localhost:5000")
+    print("  Features:")
+    print("    - Real-time market data from Binance API")
+    print("    - WebSocket live updates")
+    print("    - Module-level loading (no page refresh)")
+    print("    - Multi-tab simultaneous operation")
+    print("=" * 60)
+    print("")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
