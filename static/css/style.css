@@ -170,12 +170,47 @@ body {
     border-radius: 12px;
     padding: 24px;
     margin-bottom: 24px;
+    position: relative;
 }
 
 .card h3 {
     font-size: 18px;
     margin-bottom: 20px;
     color: var(--primary-color);
+}
+
+/* 模塊級 loading */
+.card-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(10, 14, 26, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    z-index: 10;
+}
+
+.card-loading.active {
+    display: flex;
+}
+
+.card-loading .spinner {
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.card-loading-text {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
 }
 
 /* 信息橫幅 */
@@ -205,7 +240,7 @@ body {
 }
 
 .info-banner li:before {
-    content: '✓ ';
+    content: '\2713 ';
     color: var(--success-color);
     margin-right: 8px;
 }
@@ -295,6 +330,11 @@ body {
 .btn-warning {
     background: var(--warning-color);
     color: var(--bg-dark);
+}
+
+.btn-danger {
+    background: var(--danger-color);
+    color: white;
 }
 
 .btn-secondary {
@@ -396,7 +436,41 @@ table tr:hover {
     text-align: center;
 }
 
-/* Loading Overlay */
+/* Badge */
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.badge-success {
+    background: rgba(0, 255, 136, 0.2);
+    color: var(--success-color);
+}
+
+.badge-danger {
+    background: rgba(255, 68, 68, 0.2);
+    color: var(--danger-color);
+}
+
+.badge-warning {
+    background: rgba(255, 170, 0, 0.2);
+    color: var(--warning-color);
+}
+
+.badge-info {
+    background: rgba(0, 212, 255, 0.2);
+    color: var(--primary-color);
+}
+
+.badge-secondary {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+/* Loading Overlay (全局) */
 .loading-overlay {
     display: none;
     position: fixed;
