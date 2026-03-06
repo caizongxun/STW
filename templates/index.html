@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>[V13] DeepSeek-R1 AI 交易決策系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 左側邊欄 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h2>🤖 STW AI</h2>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="signal">
+                    <span class="icon">📊</span>
+                    <span>實時訊號 & 回測</span>
+                </button>
+                <button class="nav-item" data-tab="auto">
+                    <span class="icon">⏰</span>
+                    <span>自動更新</span>
+                </button>
+                <button class="nav-item" data-tab="bybit">
+                    <span class="icon">💰</span>
+                    <span>Bybit Demo</span>
+                </button>
+                <button class="nav-item" data-tab="ai-log">
+                    <span class="icon">📝</span>
+                    <span>AI 預測記錄</span>
+                </button>
+                <button class="nav-item" data-tab="cases">
+                    <span class="icon">📚</span>
+                    <span>學習案例庫</span>
+                </button>
+                <button class="nav-item" data-tab="config">
+                    <span class="icon">⚙️</span>
+                    <span>設定</span>
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot" id="wsStatus"></span>
+                    <span id="wsStatusText">連接中...</span>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 主內容區 -->
+        <main class="main-content">
+            <!-- 頭部 -->
+            <header class="header">
+                <h1>[V13] DeepSeek-R1 AI 交易決策系統</h1>
+                <div class="header-info">
+                    <span id="currentTime"></span>
+                </div>
+            </header>
+            
+            <!-- Tab 內容 -->
+            <div class="tab-content active" id="signal-tab">
+                <div class="info-banner">
+                    <h3>✨ V13 核心特色</h3>
+                    <ul>
+                        <li>DeepSeek-R1 14B 本地推理引擎</li>
+                        <li>Chain-of-Thought 多步驟推理</li>
+                        <li>從歷史成功交易中學習 (40+ 技術指標)</li>
+                        <li>即時更新、無頁面重新載入</li>
+                    </ul>
+                </div>
+                
+                <div class="grid-2">
+                    <!-- 左側：設定區 -->
+                    <div class="card">
+                        <h3>🔧 設定</h3>
+                        
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="symbolSelect" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                                <option value="BNBUSDT">BNBUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>K 線周期</label>
+                            <select id="timeframeSelect" class="form-control">
+                                <option value="15m" selected>15m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>起投本金 (USDT)</label>
+                            <input type="number" id="capitalInput" class="form-control" value="10000" min="1000" step="1000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>回測天數</label>
+                            <input type="number" id="daysInput" class="form-control" value="30" min="7" max="90">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>AI 最低信心門檻 (%)</label>
+                            <input type="range" id="confidenceSlider" class="form-range" min="50" max="95" value="70" step="5">
+                            <span id="confidenceValue">70%</span>
+                        </div>
+                        
+                        <div class="button-group">
+                            <button id="analyzeBtn" class="btn btn-primary">
+                                <span>🔍</span> 獲取實時訊號
+                            </button>
+                            <button id="backtestBtn" class="btn btn-success">
+                                <span>📊</span> 開始回測
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 右側：結果區 -->
+                    <div class="card">
+                        <h3 id="signalTitle">📊 實時 AI 訊號</h3>
+                        <div id="signalContent" class="signal-content">
+                            <p class="text-muted">點擊「獲取實時訊號」開始分析</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 回測結果 -->
+                <div id="backtestResults" class="card" style="display: none;">
+                    <h3>📊 回測結果</h3>
+                    <div id="backtestContent"></div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="auto-tab">
+                <div class="card">
+                    <h3>⏰ 自動更新</h3>
+                    <p>功能開發中...</p>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="bybit-tab">
+                <div class="card">
+                    <h3>💰 Bybit Demo 交易</h3>
+                    <p>功能開發中...</p>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="ai-log-tab">
+                <div class="card">
+                    <h3>📝 AI 預測記錄 & 準確度分析</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>記錄每根 K 棒的 AI 預測結果</li>
+                            <li>對比預測 vs 實際走勢，計算準確率</li>
+                            <li>支持自動/手動更新</li>
+                            <li>保留近 20 筆記錄</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="aiLogSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                                <option value="BNBUSDT">BNBUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>K 線周期</label>
+                            <select id="aiLogTimeframe" class="form-control">
+                                <option value="15m" selected>15m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>自動更新</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="aiLogAutoUpdate">
+                                <label for="aiLogAutoUpdate"></label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="aiLogUpdateBtn" class="btn btn-primary">
+                            <span>🔄</span> 更新預測
+                        </button>
+                        <button id="aiLogClearBtn" class="btn btn-warning">
+                            <span>🗑️</span> 清除記錄
+                        </button>
+                        <button id="aiLogExportBtn" class="btn btn-secondary">
+                            <span>💾</span> 導出 CSV
+                        </button>
+                    </div>
+                    
+                    <div class="stats-grid" id="aiLogStats">
+                        <div class="stat-card">
+                            <div class="stat-label">總預測次數</div>
+                            <div class="stat-value" id="totalPredictions">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">已驗證次數</div>
+                            <div class="stat-value" id="verifiedPredictions">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">準確率</div>
+                            <div class="stat-value" id="accuracy">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">最常動作</div>
+                            <div class="stat-value" id="mostCommonAction">N/A</div>
+                        </div>
+                    </div>
+                    
+                    <div id="aiLogTable" class="table-container">
+                        <table id="logsTable">
+                            <thead>
+                                <tr>
+                                    <th>時間</th>
+                                    <th>價格</th>
+                                    <th>動作</th>
+                                    <th>信心度</th>
+                                    <th>預測方向</th>
+                                    <th>實際方向</th>
+                                    <th>結果</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logsTableBody">
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">尚無記錄</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="cases-tab">
+                <div class="card">
+                    <h3>📚 學習案例庫</h3>
+                    <p>功能開發中...</p>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="config-tab">
+                <div class="card">
+                    <h3>⚙️ 系統設定</h3>
+                    <p>功能開發中...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loadingText">處理中...</p>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ai_log.js') }}"></script>
+</body>
+</html>
