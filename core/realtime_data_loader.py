@@ -1,19 +1,14 @@
 """
-即時數據加載器 - 使用 Binance API 獲取最新價格
+即時數據加載器 - 直接調用 Binance API
 """
-import ccxt
+import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class RealtimeDataLoader:
     def __init__(self):
-        self.exchange = ccxt.binance({
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'future'  # 使用合約
-            }
-        })
+        self.base_url = "https://fapi.binance.com"  # Binance Futures API
     
     def load_data(self, symbol="BTCUSDT", timeframe="15m", limit=500):
         """
@@ -30,27 +25,40 @@ class RealtimeDataLoader:
         try:
             print(f"Fetching realtime data for {symbol} {timeframe}...")
             
-            # 獲取 OHLCV 數據
-            ohlcv = self.exchange.fetch_ohlcv(
-                symbol=symbol,
-                timeframe=timeframe,
-                limit=limit
-            )
+            # Binance API endpoint
+            url = f"{self.base_url}/fapi/v1/klines"
             
-            if not ohlcv:
+            params = {
+                'symbol': symbol,
+                'interval': timeframe,
+                'limit': limit
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if not data:
                 print(f"No data returned for {symbol} {timeframe}")
                 return None
             
             # 轉換為 DataFrame
-            df = pd.DataFrame(
-                ohlcv,
-                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-            )
+            # Binance klines format:
+            # [open_time, open, high, low, close, volume, close_time, ...]
+            df = pd.DataFrame(data, columns=[
+                'open_time', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                'taker_buy_quote', 'ignore'
+            ])
             
-            # 轉換時間格式
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df['open_time'] = df['timestamp']
-            df['close_time'] = df['timestamp'] + pd.Timedelta(minutes=self._get_timeframe_minutes(timeframe))
+            # 只保留需要的欄位
+            df = df[['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time']]
+            
+            # 轉換時間格式 (Binance 使用毫秒)
+            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+            df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
             
             # 確保數値類型
             for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -62,8 +70,13 @@ class RealtimeDataLoader:
             
             return df
             
+        except requests.exceptions.RequestException as e:
+            print(f"Network error loading realtime data: {e}")
+            return None
         except Exception as e:
             print(f"Error loading realtime data: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def get_latest_price(self, symbol="BTCUSDT"):
@@ -71,23 +84,15 @@ class RealtimeDataLoader:
         獲取最新價格
         """
         try:
-            ticker = self.exchange.fetch_ticker(symbol)
-            return ticker['last']
+            url = f"{self.base_url}/fapi/v1/ticker/price"
+            params = {'symbol': symbol}
+            
+            response = requests.get(url, params=params, timeout=5)
+            response.raise_for_status()
+            
+            data = response.json()
+            return float(data['price'])
+            
         except Exception as e:
             print(f"Error fetching latest price: {e}")
             return None
-    
-    def _get_timeframe_minutes(self, timeframe):
-        """
-        將 timeframe 轉換為分鐘數
-        """
-        timeframe_map = {
-            '1m': 1,
-            '5m': 5,
-            '15m': 15,
-            '30m': 30,
-            '1h': 60,
-            '4h': 240,
-            '1d': 1440
-        }
-        return timeframe_map.get(timeframe, 15)
