@@ -13,10 +13,6 @@ import pandas as pd
 class BybitDemoTrader:
     """
     Bybit Demo Trading 引擎
-    - 使用 Demo Trading API (api-demo.bybit.com)
-    - 模擬資金,但使用真實市場價格和滑點
-    - 支持止損止盈
-    - 整合倉位感知 AI
     """
     
     def __init__(
@@ -26,23 +22,13 @@ class BybitDemoTrader:
         demo_mode: str = 'demo',
         symbol: str = 'BTCUSDT',
         max_leverage: int = 10,
-        min_order_value_usdt: float = 100.0  # 最小下單金額
+        min_order_value_usdt: float = 10.0  # 降低最小金額
     ):
-        """
-        Args:
-            api_key: Bybit API Key
-            api_secret: Bybit API Secret
-            demo_mode: 'demo', 'testnet', or 'mainnet'
-            symbol: 交易對
-            max_leverage: 最大槓桿倍數
-            min_order_value_usdt: 最小下單金額 (USDT)
-        """
         self.symbol = symbol
         self.max_leverage = max_leverage
         self.demo_mode = demo_mode
         self.min_order_value_usdt = min_order_value_usdt
         
-        # 根據模式選擇參數
         if demo_mode == 'demo':
             testnet = False
             demo = True
@@ -53,7 +39,6 @@ class BybitDemoTrader:
             testnet = False
             demo = False
         
-        # 初始化 Bybit HTTP 客戶端
         self.session = HTTP(
             testnet=testnet,
             demo=demo,
@@ -61,14 +46,12 @@ class BybitDemoTrader:
             api_secret=api_secret
         )
         
-        # 狀態追蹤
         self.current_position = None
         self.current_leverage = 1
         self.open_orders = []
         self.trade_history = []
     
     def set_leverage(self, leverage: int):
-        """設置槓桿倍數"""
         try:
             leverage = max(1, min(leverage, self.max_leverage))
             
@@ -92,7 +75,6 @@ class BybitDemoTrader:
             return False
     
     def get_balance(self) -> Dict:
-        """獲取帳戶餘額"""
         try:
             result = self.session.get_wallet_balance(
                 accountType="UNIFIED",
@@ -128,7 +110,6 @@ class BybitDemoTrader:
             return {'total_equity': 0, 'available_balance': 0, 'unrealized_pnl': 0}
     
     def get_position(self) -> Optional[Dict]:
-        """獲取當前持倉"""
         try:
             result = self.session.get_positions(
                 category="linear",
@@ -158,7 +139,6 @@ class BybitDemoTrader:
             return None
     
     def get_current_price(self) -> float:
-        """獲取當前市價"""
         try:
             result = self.session.get_tickers(
                 category="linear",
@@ -175,7 +155,6 @@ class BybitDemoTrader:
             return 0.0
     
     def get_account_info(self) -> Dict:
-        """獲取帳戶資訊 (供AI使用)"""
         balance = self.get_balance()
         balance['max_leverage'] = self.max_leverage
         return balance
@@ -188,9 +167,7 @@ class BybitDemoTrader:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None
     ) -> Dict:
-        """下市價單"""
         try:
-            # 檢查數量
             if quantity <= 0:
                 return {
                     'success': False,
@@ -198,11 +175,9 @@ class BybitDemoTrader:
                     'message': f'下單數量無效: {quantity}'
                 }
             
-            # 設置槓桿
             if leverage and leverage != self.current_leverage:
                 self.set_leverage(leverage)
             
-            # 下單
             print(f"下單: {side} {quantity} {self.symbol} @ Market ({self.current_leverage}x)")
             
             result = self.session.place_order(
@@ -226,11 +201,9 @@ class BybitDemoTrader:
             
             time.sleep(1)
             
-            # 設置止損止盈
             if stop_loss or take_profit:
                 self._set_stop_loss_take_profit(side, stop_loss, take_profit)
             
-            # 記錄交易
             self.trade_history.append({
                 'time': datetime.now().isoformat(),
                 'side': side,
@@ -262,7 +235,6 @@ class BybitDemoTrader:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None
     ):
-        """設置止損止盈"""
         try:
             params = {
                 "category": "linear",
@@ -287,7 +259,6 @@ class BybitDemoTrader:
             print(f"止損止盈設置錯誤: {e}")
     
     def close_position(self, size: Optional[float] = None) -> Dict:
-        """平倉當前持倉"""
         position = self.get_position()
         
         if not position:
@@ -310,7 +281,6 @@ class BybitDemoTrader:
         return result
     
     def execute_ai_decision(self, decision: Dict, market_data: Dict) -> Dict:
-        """執行 AI 決策"""
         action = decision.get('action', 'HOLD')
         
         print(f"\n執行 AI 決策: {action}")
@@ -363,21 +333,31 @@ class BybitDemoTrader:
                     return close_result
                 time.sleep(2)
             
+            # 檢查餘額
+            balance = self.get_balance()
+            available = balance.get('available_balance', 0)
+            
+            if available < self.min_order_value_usdt:
+                return {
+                    'action': 'OPEN_LONG',
+                    'success': False,
+                    'message': f'餘額不足: ${available:.2f} < ${self.min_order_value_usdt}'
+                }
+            
             current_price = market_data.get('close', self.get_current_price())
             position_size_usdt = decision.get('position_size_usdt', 0)
             
-            # 確保最小下單金額
+            # 使用可用餘額的 5-10%
             if position_size_usdt < self.min_order_value_usdt:
-                balance = self.get_balance()
-                available = balance.get('available_balance', 0)
-                
-                # 使用可用餘額的 10%，最低 100 USDT
-                position_size_usdt = max(available * 0.1, self.min_order_value_usdt)
-                print(f"倉位金額過小，調整為: {position_size_usdt} USDT")
+                position_size_usdt = min(available * 0.05, self.min_order_value_usdt)
+                print(f"倉位金額調整為: {position_size_usdt} USDT")
+            
+            # 不能超過可用餘額的 20%
+            position_size_usdt = min(position_size_usdt, available * 0.2)
             
             quantity = position_size_usdt / current_price
             
-            print(f"開多單: ${position_size_usdt} USDT = {quantity} {self.symbol}")
+            print(f"開多單: ${position_size_usdt:.2f} USDT = {quantity:.6f} {self.symbol}")
             
             result = self.place_market_order(
                 side='Buy',
@@ -398,19 +378,28 @@ class BybitDemoTrader:
                     return close_result
                 time.sleep(2)
             
+            balance = self.get_balance()
+            available = balance.get('available_balance', 0)
+            
+            if available < self.min_order_value_usdt:
+                return {
+                    'action': 'OPEN_SHORT',
+                    'success': False,
+                    'message': f'餘額不足: ${available:.2f} < ${self.min_order_value_usdt}'
+                }
+            
             current_price = market_data.get('close', self.get_current_price())
             position_size_usdt = decision.get('position_size_usdt', 0)
             
-            # 確保最小下單金額
             if position_size_usdt < self.min_order_value_usdt:
-                balance = self.get_balance()
-                available = balance.get('available_balance', 0)
-                position_size_usdt = max(available * 0.1, self.min_order_value_usdt)
-                print(f"倉位金額過小，調整為: {position_size_usdt} USDT")
+                position_size_usdt = min(available * 0.05, self.min_order_value_usdt)
+                print(f"倉位金額調整為: {position_size_usdt} USDT")
+            
+            position_size_usdt = min(position_size_usdt, available * 0.2)
             
             quantity = position_size_usdt / current_price
             
-            print(f"開空單: ${position_size_usdt} USDT = {quantity} {self.symbol}")
+            print(f"開空單: ${position_size_usdt:.2f} USDT = {quantity:.6f} {self.symbol}")
             
             result = self.place_market_order(
                 side='Sell',
@@ -426,13 +415,11 @@ class BybitDemoTrader:
             return {'action': action, 'success': False, 'message': f'不支援的 action: {action}'}
     
     def get_trade_history_df(self) -> pd.DataFrame:
-        """獲取交易歷史 DataFrame"""
         if not self.trade_history:
             return pd.DataFrame()
         return pd.DataFrame(self.trade_history)
     
     def get_account_summary(self) -> Dict:
-        """獲取帳戶摘要"""
         balance = self.get_balance()
         position = self.get_position()
         
