@@ -46,6 +46,7 @@ def analyze_market():
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
         timeframe = data.get('timeframe', '15m')
+        auto_log = data.get('auto_log', False)  # 是否自動記錄
         
         if not app_state['data_loader']:
             app_state['data_loader'] = RealtimeDataLoader()
@@ -60,28 +61,46 @@ def analyze_market():
         if not app_state['ai_agent']:
             app_state['ai_agent'] = PositionAwareDeepSeekAgent()
         
-        account_info = {
-            'total_equity': 10000,
-            'available_balance': 10000,
-            'unrealized_pnl': 0,
-            'max_leverage': 10
-        }
+        # 獲取帳戶資訊
+        if app_state['bybit_trader']:
+            account_info = app_state['bybit_trader'].get_account_info()
+            position_info = app_state['bybit_trader'].get_position()
+        else:
+            account_info = {
+                'total_equity': 10000,
+                'available_balance': 10000,
+                'unrealized_pnl': 0,
+                'max_leverage': 10
+            }
+            position_info = None
         
         decision = app_state['ai_agent'].analyze_with_position(
             market_data=latest_data,
             account_info=account_info,
-            position_info=None
+            position_info=position_info
         )
         
         latest_price = float(df['close'].iloc[-1])
+        timestamp = df['timestamp'].iloc[-1]
         
         app_state['latest_signal'] = {
             'symbol': symbol,
             'timeframe': timeframe,
-            'timestamp': df['timestamp'].iloc[-1].isoformat(),
+            'timestamp': timestamp.isoformat(),
             'price': latest_price,
             'decision': decision
         }
+        
+        # 如果啟用自動記錄，保存 AI 預測
+        if auto_log:
+            _save_ai_prediction_log(
+                timestamp=timestamp,
+                symbol=symbol,
+                timeframe=timeframe,
+                price=latest_price,
+                decision=decision,
+                market_data=latest_data
+            )
         
         print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
         
@@ -132,6 +151,7 @@ def run_backtest():
 
 @app.route('/api/ai-log/update', methods=['POST'])
 def update_ai_log():
+    """手動觸發 AI 預測記錄"""
     try:
         data = request.json
         symbol = data.get('symbol', 'BTCUSDT')
@@ -151,52 +171,33 @@ def update_ai_log():
         current_candle = df.iloc[-1]
         market_data = prepare_market_features(current_candle, df)
         
-        account_info = {
-            'total_equity': 10000,
-            'available_balance': 10000,
-            'unrealized_pnl': 0,
-            'max_leverage': 10
-        }
+        # 獲取帳戶資訊
+        if app_state['bybit_trader']:
+            account_info = app_state['bybit_trader'].get_account_info()
+            position_info = app_state['bybit_trader'].get_position()
+        else:
+            account_info = {
+                'total_equity': 10000,
+                'available_balance': 10000,
+                'unrealized_pnl': 0,
+                'max_leverage': 10
+            }
+            position_info = None
         
         decision = app_state['ai_agent'].analyze_with_position(
             market_data=market_data,
             account_info=account_info,
-            position_info=None
+            position_info=position_info
         )
         
-        log_entry = {
-            'timestamp': current_candle['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-            'symbol': symbol,
-            'timeframe': timeframe,
-            'close_price': float(current_candle['close']),
-            'action': decision.get('action', 'HOLD'),
-            'confidence': decision.get('confidence', 0),
-            'leverage': decision.get('leverage', 1),
-            'position_size_usdt': decision.get('position_size_usdt', 0),
-            'stop_loss': decision.get('stop_loss'),
-            'take_profit': decision.get('take_profit'),
-            'reasoning': decision.get('reasoning', '')[:200],
-            'risk_assessment': decision.get('risk_assessment', '')[:100],
-            'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
-            'actual_direction': None,
-            'is_correct': None
-        }
-        
-        if app_state['ai_prediction_logs']:
-            _update_previous_log_accuracy(
-                app_state['ai_prediction_logs'],
-                current_candle['close']
-            )
-        
-        app_state['ai_prediction_logs'].append(log_entry)
-        
-        if len(app_state['ai_prediction_logs']) > 20:
-            app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-20:]
-        
-        socketio.emit('ai_log_updated', {
-            'logs': app_state['ai_prediction_logs'],
-            'new_entry': log_entry
-        })
+        _save_ai_prediction_log(
+            timestamp=current_candle['timestamp'],
+            symbol=symbol,
+            timeframe=timeframe,
+            price=float(current_candle['close']),
+            decision=decision,
+            market_data=market_data
+        )
         
         return jsonify({
             'success': True,
@@ -289,13 +290,26 @@ def handle_stop_bybit_trading():
 
 
 def bybit_trading_worker(config):
+    """
+    Bybit 自動交易工作執行緒
+    每 15 分鐘執行一次，自動記錄 AI 預測
+    """
+    print("\n=" * 50)
+    print("Bybit 自動交易已啟動")
+    print("=" * 50)
+    
     while app_state['bybit_trading']:
         try:
             if not app_state['bybit_trader']:
+                print("等待 Bybit 連接...")
                 time.sleep(5)
                 continue
             
             trader = app_state['bybit_trader']
+            symbol = config.get('symbol', 'BTCUSDT')
+            timeframe = '15m'
+            
+            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 執行 AI 分析...")
             
             if not app_state['data_loader']:
                 app_state['data_loader'] = RealtimeDataLoader()
@@ -303,35 +317,115 @@ def bybit_trading_worker(config):
             if not app_state['ai_agent']:
                 app_state['ai_agent'] = PositionAwareDeepSeekAgent()
             
-            df = app_state['data_loader'].load_data(config['symbol'], '15m')
+            # 獲取數據
+            df = app_state['data_loader'].load_data(symbol, timeframe)
             
             if df is not None and len(df) > 200:
-                market_data = prepare_market_features(df.iloc[-1], df)
+                current_candle = df.iloc[-1]
+                market_data = prepare_market_features(current_candle, df)
                 account_info = trader.get_account_info()
                 position_info = trader.get_position()
                 
+                # AI 分析
                 decision = app_state['ai_agent'].analyze_with_position(
                     market_data=market_data,
                     account_info=account_info,
                     position_info=position_info
                 )
                 
+                # 保存 AI 預測記錄
+                _save_ai_prediction_log(
+                    timestamp=current_candle['timestamp'],
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    price=float(current_candle['close']),
+                    decision=decision,
+                    market_data=market_data
+                )
+                
+                # 執行交易
                 result = trader.execute_ai_decision(decision, market_data)
                 
+                print(f"\n交易執行: {result['action']} - {result['message']}")
+                
+                # 發送更新到前端
                 socketio.emit('bybit_trade_executed', {
                     'action': result['action'],
                     'message': result['message'],
                     'balance': trader.get_balance(),
-                    'position': trader.get_position()
+                    'position': trader.get_position(),
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                socketio.emit('ai_log_updated', {
+                    'logs': app_state['ai_prediction_logs']
                 })
             
+            # 等待 15 分鐘 (900 秒)
+            print(f"\n等待下次執行 (15 分鐘後)...")
             time.sleep(900)
             
         except Exception as e:
-            print(f"Bybit trading error: {e}")
+            print(f"\nBybit trading error: {e}")
             import traceback
             traceback.print_exc()
             time.sleep(60)
+    
+    print("\n=" * 50)
+    print("Bybit 自動交易已停止")
+    print("=" * 50)
+
+
+def _save_ai_prediction_log(
+    timestamp,
+    symbol: str,
+    timeframe: str,
+    price: float,
+    decision: Dict,
+    market_data: Dict
+):
+    """
+    保存 AI 預測記錄
+    """
+    log_entry = {
+        'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
+        'symbol': symbol,
+        'timeframe': timeframe,
+        'close_price': float(price),
+        'action': decision.get('action', 'HOLD'),
+        'confidence': decision.get('confidence', 0),
+        'leverage': decision.get('leverage', 1),
+        'position_size_usdt': decision.get('position_size_usdt', 0),
+        'stop_loss': decision.get('stop_loss'),
+        'take_profit': decision.get('take_profit'),
+        'reasoning': decision.get('reasoning', '')[:200],
+        'risk_assessment': decision.get('risk_assessment', 'MEDIUM'),
+        'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
+        'actual_direction': None,
+        'is_correct': None,
+        # 添加技術指標
+        'rsi': market_data.get('rsi'),
+        'macd_hist': market_data.get('macd_hist'),
+        'bb_position': market_data.get('bb_position'),
+        'adx': market_data.get('adx')
+    }
+    
+    # 更新前一筆的準確度
+    if app_state['ai_prediction_logs']:
+        _update_previous_log_accuracy(
+            app_state['ai_prediction_logs'],
+            price
+        )
+    
+    # 添加新記錄
+    app_state['ai_prediction_logs'].append(log_entry)
+    
+    # 保持最近 100 筆記錄
+    if len(app_state['ai_prediction_logs']) > 100:
+        app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
+    
+    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%)")
+    print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
 
 def _get_direction_from_action(action: str) -> str:
@@ -346,17 +440,22 @@ def _get_direction_from_action(action: str) -> str:
 
 
 def _update_previous_log_accuracy(logs: list, current_price: float):
-    if len(logs) < 2:
+    """
+    更新前一筆記錄的預測準確度
+    """
+    if len(logs) < 1:
         return
     
     prev_log = logs[-1]
     
+    # 已經驗證過
     if prev_log['is_correct'] is not None:
         return
     
     prev_price = prev_log['close_price']
     predicted_direction = prev_log['predicted_direction']
     
+    # 計算實際方向 (變動 > 0.1% 才算)
     if current_price > prev_price * 1.001:
         actual_direction = 'UP'
     elif current_price < prev_price * 0.999:
@@ -366,10 +465,16 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
     
     prev_log['actual_direction'] = actual_direction
     
+    # 計算是否準確
     if predicted_direction in ['NEUTRAL', 'CLOSE']:
         prev_log['is_correct'] = None
     else:
         prev_log['is_correct'] = (predicted_direction == actual_direction)
+    
+    if prev_log['is_correct'] is not None:
+        result_text = "✅ 準確" if prev_log['is_correct'] else "❌ 錯誤"
+        print(f"\n上次預測結果: {result_text}")
+        print(f"  預測: {predicted_direction}, 實際: {actual_direction}")
 
 
 if __name__ == '__main__':
@@ -381,6 +486,7 @@ if __name__ == '__main__':
     print("  Features:")
     print("    - Real-time market data from Binance API")
     print("    - WebSocket live updates")
+    print("    - Auto AI prediction logging")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     print("=" * 60)
