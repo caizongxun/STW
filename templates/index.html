@@ -51,6 +51,7 @@
                 </div>
             </header>
             
+            <!-- 實時訊號 & 回測 -->
             <div class="tab-content active" id="signal-tab">
                 <div class="info-banner">
                     <h3>V13 核心特色</h3>
@@ -103,7 +104,7 @@
                         </div>
                         
                         <div class="form-group">
-                            <label>AI 最低信心門檻 (%)</label>
+                            <label>AI 最低信心門檢 (%)</label>
                             <input type="range" id="confidenceSlider" class="form-range" min="50" max="95" value="70" step="5">
                             <span id="confidenceValue">70%</span>
                         </div>
@@ -146,6 +147,85 @@
                 </div>
             </div>
             
+            <!-- 自動更新 -->
+            <div class="tab-content" id="auto-tab">
+                <div class="card">
+                    <div class="card-loading" id="autoUpdateCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>自動更新 AI 分析</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>定時自動執行 AI 分析 (預設 15 分鐘)</li>
+                            <li>自動記錄每次預測到 AI 預測記錄</li>
+                            <li>可配合 Bybit 自動交易使用</li>
+                            <li>支持自定義更新頻率</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="autoUpdateSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>K 線周期</label>
+                            <select id="autoUpdateTimeframe" class="form-control">
+                                <option value="15m" selected>15m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>更新頻率</label>
+                            <select id="autoUpdateFrequency" class="form-control">
+                                <option value="300000">5 分鐘</option>
+                                <option value="900000" selected>15 分鐘</option>
+                                <option value="1800000">30 分鐘</option>
+                                <option value="3600000">1 小時</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>啟用自動更新</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="autoUpdateToggle">
+                            <label for="autoUpdateToggle"></label>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-grid" style="margin-top: 24px;">
+                        <div class="stat-card">
+                            <div class="stat-label">上次更新</div>
+                            <div class="stat-value" id="lastUpdateTime">N/A</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">下次更新</div>
+                            <div class="stat-value" id="nextUpdateTime">N/A</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">更新次數</div>
+                            <div class="stat-value" id="updateCount">0</div>
+                        </div>
+                    </div>
+                    
+                    <div id="autoUpdateStatus"></div>
+                </div>
+            </div>
+            
+            <!-- Bybit Demo -->
             <div class="tab-content" id="bybit-tab">
                 <div class="card">
                     <div class="card-loading" id="bybitCardLoading">
@@ -214,6 +294,7 @@
                 </div>
             </div>
             
+            <!-- AI 預測記錄 -->
             <div class="tab-content" id="ai-log-tab">
                 <div class="card">
                     <div class="card-loading" id="aiLogCardLoading">
@@ -230,7 +311,7 @@
                             <li>記錄每根 K 棒的 AI 預測結果</li>
                             <li>對比預測 vs 實際走勢，計算準確率</li>
                             <li>支持自動/手動更新</li>
-                            <li>保留近 20 筆記錄</li>
+                            <li>保留近 100 筆記錄</li>
                         </ul>
                     </div>
                     
@@ -310,24 +391,160 @@
                 </div>
             </div>
             
-            <div class="tab-content" id="auto-tab">
-                <div class="card">
-                    <h3>自動更新</h3>
-                    <p>功能開發中...</p>
-                </div>
-            </div>
-            
+            <!-- 學習案例庫 -->
             <div class="tab-content" id="cases-tab">
                 <div class="card">
+                    <div class="card-loading" id="casesCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
                     <h3>學習案例庫</h3>
-                    <p>功能開發中...</p>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>儲存成功的交易案例，AI 可從中學習</li>
+                            <li>記錄入場/出場價格、技術指標、盈虧</li>
+                            <li>支持篩選、搜尋、標籤</li>
+                            <li>可導出/導入 JSON 檔案</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>搜尋</label>
+                            <input type="text" id="casesSearch" class="form-control" placeholder="搜尋交易對、理由或標籤...">
+                        </div>
+                        <div class="button-group">
+                            <button id="addCaseBtn" class="btn btn-success">添加案例</button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-buttons" style="margin: 16px 0;">
+                        <button class="filter-btn active" id="filterAll">全部</button>
+                        <button class="filter-btn" id="filterLong">做多</button>
+                        <button class="filter-btn" id="filterShort">做空</button>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">總案例數</div>
+                            <div class="stat-value" id="totalCases">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">平均盈虧</div>
+                            <div class="stat-value" id="avgProfit">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">勝率</div>
+                            <div class="stat-value" id="winRate">0%</div>
+                        </div>
+                    </div>
+                    
+                    <div id="casesList" class="cases-list">
+                        <p class="text-muted">正在載入案例...</p>
+                    </div>
                 </div>
             </div>
             
+            <!-- 設定 -->
             <div class="tab-content" id="config-tab">
                 <div class="card">
+                    <div class="card-loading" id="configCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
                     <h3>系統設定</h3>
-                    <p>功能開發中...</p>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>配置 AI 模型參數</li>
+                            <li>設定 API 金鑰</li>
+                            <li>通知設定</li>
+                            <li>支持匯出/匯入配置</li>
+                        </ul>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">AI 設定</h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>模型</label>
+                            <select id="aiModel" class="form-control">
+                                <option value="deepseek-r1:14b">DeepSeek-R1 14B</option>
+                                <option value="deepseek-r1:7b">DeepSeek-R1 7B</option>
+                                <option value="deepseek-r1:32b">DeepSeek-R1 32B</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Temperature</label>
+                            <input type="number" id="aiTemperature" class="form-control" value="0.1" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Tokens</label>
+                            <input type="number" id="aiMaxTokens" class="form-control" value="2048" min="512" max="4096" step="256">
+                        </div>
+                        <div class="form-group">
+                            <label>信心度門檢</label>
+                            <input type="number" id="aiConfidenceThreshold" class="form-control" value="70" min="50" max="95">
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">API 設定</h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>DeepSeek API Key</label>
+                            <input type="password" id="deepseekApiKey" class="form-control" placeholder="選填">
+                        </div>
+                        <div class="form-group">
+                            <label>Binance API Key</label>
+                            <input type="password" id="binanceApiKey" class="form-control" placeholder="選填">
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">通知設定</h4>
+                    <div class="form-group">
+                        <label>啟用通知</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="enableNotifications">
+                            <label for="enableNotifications"></label>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>通知信箱</label>
+                            <input type="email" id="notificationEmail" class="form-control" placeholder="your@email.com">
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>交易通知</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="notifyOnTrade">
+                                <label for="notifyOnTrade"></label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>錯誤通知</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="notifyOnError">
+                                <label for="notifyOnError"></label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group" style="margin-top: 24px;">
+                        <button id="saveConfigBtn" class="btn btn-primary">保存設定</button>
+                        <button id="resetConfigBtn" class="btn btn-warning">重設設定</button>
+                        <button id="exportConfigBtn" class="btn btn-secondary">匯出配置</button>
+                        <button id="importConfigBtn" class="btn btn-secondary">匯入配置</button>
+                    </div>
+                    
+                    <div id="configStatus"></div>
                 </div>
             </div>
         </main>
@@ -341,5 +558,8 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ai_log.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bybit.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/auto_update.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/cases.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
 </body>
 </html>
