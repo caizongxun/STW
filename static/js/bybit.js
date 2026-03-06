@@ -1,5 +1,6 @@
 /**
  * Bybit Demo 交易 JavaScript
+ * 支持配置自動保存和恢复
  */
 
 const bybitState = {
@@ -26,12 +27,69 @@ const bybitElements = {
 
 function initBybit() {
     setupBybitEventListeners();
+    loadBybitConfig();
 }
 
 function setupBybitEventListeners() {
     bybitElements.testBtn.addEventListener('click', testBybitConnection);
     bybitElements.startBtn.addEventListener('click', startBybitTrading);
     bybitElements.stopBtn.addEventListener('click', stopBybitTrading);
+    
+    // 自動保存配置
+    bybitElements.apiKey.addEventListener('change', saveBybitConfig);
+    bybitElements.apiSecret.addEventListener('change', saveBybitConfig);
+    bybitElements.symbol.addEventListener('change', saveBybitConfig);
+}
+
+async function loadBybitConfig() {
+    try {
+        const response = await fetch('/api/config/get');
+        const config = await response.json();
+        
+        if (config.bybit_symbol) {
+            bybitElements.symbol.value = config.bybit_symbol;
+        }
+        
+        // 如果有保存的 API key 提示
+        if (config.bybit_api_key_saved) {
+            bybitElements.apiKey.placeholder = `已保存: ${config.bybit_api_key_hint || '••••'}`;
+        }
+        
+        if (config.bybit_api_secret_saved) {
+            bybitElements.apiSecret.placeholder = '已保存 API Secret';
+        }
+        
+        console.log('配置已載入');
+    } catch (error) {
+        console.log('無法載入配置:', error);
+    }
+}
+
+async function saveBybitConfig() {
+    try {
+        const config = {
+            bybit_symbol: bybitElements.symbol.value
+        };
+        
+        // 只有當 API key 有值時才保存
+        if (bybitElements.apiKey.value) {
+            config.bybit_api_key = bybitElements.apiKey.value;
+        }
+        
+        if (bybitElements.apiSecret.value) {
+            config.bybit_api_secret = bybitElements.apiSecret.value;
+        }
+        
+        await fetch('/api/config/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        });
+        
+        console.log('配置已保存');
+    } catch (error) {
+        console.error('保存配置失敗:', error);
+    }
 }
 
 async function testBybitConnection() {
@@ -42,6 +100,9 @@ async function testBybitConnection() {
         showBybitStatus('請先輸入 API Key 和 Secret', 'error');
         return;
     }
+    
+    // 保存配置
+    await saveBybitConfig();
     
     showCardLoading('bybitCardLoading', '連線中...');
     
@@ -82,9 +143,8 @@ async function startBybitTrading() {
     bybitElements.startBtn.disabled = true;
     bybitElements.stopBtn.disabled = false;
     
-    showBybitStatus('自動交易已啟動', 'success');
+    showBybitStatus('自動交易已啟動 (每 15 分鐘執行一次)', 'success');
     
-    // 通知伺服器啟動交易
     socket.emit('start_bybit_trading', {
         api_key: bybitElements.apiKey.value,
         api_secret: bybitElements.apiSecret.value,
