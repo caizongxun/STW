@@ -1,0 +1,14 @@
+# Flask 架構依賴包
+Flask==3.0.0
+Flask-SocketIO==5.3.5
+Flask-CORS==4.0.0
+python-socketio==5.10.0
+eventlet==0.33.3
+
+# 原有依賴 (保留)
+pandas==2.1.4
+numpy==1.26.2
+TA-Lib==0.4.28
+ccxt==4.2.3
+requests==2.31.0
+pybit==5.6.2
