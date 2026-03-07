@@ -9,7 +9,7 @@
 審核員的職責：
   1. 評估仲裁者決策的可行性
   2. 檢查市場狀況是否適合交易
-  3. 考量風險控制 (信心度門檻)
+  3. 考量風險控制 (信心度門檢)
   4. 避免危險操作 (如低流動性、高波動)
   5. 最終決定 EXECUTE (執行) 或 REJECT (拒絕)
 
@@ -151,7 +151,8 @@ class TradingExecutorAgent:
             
             if ai_review:
                 print(f"[AI REVIEW] {ai_review['execution_decision']}")
-                print(f"            {ai_review['executor_reasoning'][:100]}...")
+                reasoning_preview = ai_review['executor_reasoning'][:100].replace('\n', ' ')
+                print(f"            {reasoning_preview}...")
                 return ai_review
         
         # 備用: 基於信心度的預設策略
@@ -305,7 +306,9 @@ class TradingExecutorAgent:
                     print("\n" + "="*70)
                     print("[ERROR] 解析失敗 - AI 審核員完整回應:")
                     print("="*70)
-                    print(raw_content)
+                    # 分段打印，每 500 字一段
+                    for i in range(0, len(raw_content), 500):
+                        print(raw_content[i:i+500])
                     print("="*70 + "\n")
                 
                 # 應用審核結果
@@ -330,6 +333,8 @@ class TradingExecutorAgent:
                 
         except Exception as e:
             print(f"[ERROR] AI 審核異常: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _call_gemini(self, system_prompt: str, user_prompt: str) -> Dict:
