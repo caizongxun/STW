@@ -101,7 +101,7 @@ def load_config():
             
             # 自動設定環境變數
             app_state['config_manager'].export_to_env()
-            print("✅ 已自動設定環境變數")
+            print("[OK] 已自動設定環境變數")
             
             app_state['use_dual_model'] = config.get('use_dual_model', False)
             app_state['use_arbitrator_consensus'] = config.get('use_arbitrator_consensus', False)
@@ -472,7 +472,7 @@ def analyze_market():
         # 初始化多時間框架分析器
         if HAS_MULTI_TIMEFRAME and not app_state['mt_analyzer']:
             app_state['mt_analyzer'] = MultiTimeframeAnalyzer(app_state['data_loader'])
-            print("✅ 多時間框架分析器已初始化")
+            print("[OK] 多時間框架分析器已初始化")
         
         df = app_state['data_loader'].load_data(symbol, timeframe)
         
@@ -492,15 +492,15 @@ def analyze_market():
                     secondary_timeframes=['1h', '4h'],
                     num_candles=20
                 )
-                print(f"✅ 多時間框架數據已準備: {list(multi_timeframe_data.keys())}")
+                print(f"[OK] 多時間框架數據已準備: {list(multi_timeframe_data.keys())}")
                 
                 # 檢查逆勢機會
                 counter_signal = app_state['mt_analyzer'].get_counter_trend_signal(multi_timeframe_data)
                 if counter_signal['has_signal']:
-                    print(f"🚨 高信心逆勢機會: {counter_signal['direction']} (信心度 {counter_signal['confidence']}%)")
+                    print(f"[ALERT] 高信心逆勢機會: {counter_signal['direction']} (信心度 {counter_signal['confidence']}%)")
                     print(f"   {counter_signal['reasoning']}")
             except Exception as e:
-                print(f"⚠️ 多時間框架分析失敗: {e}")
+                print(f"[WARNING] 多時間框架分析失敗: {e}")
                 multi_timeframe_data = None
         
         if app_state['bybit_trader']:
@@ -554,7 +554,7 @@ def analyze_market():
         
         # 如果是逆勢操作，加入標記
         if decision.get('is_counter_trend'):
-            print("[ANALYZE] 🔄 Counter-trend operation detected!")
+            print("[ANALYZE] Counter-trend operation detected!")
         
         return jsonify(app_state['latest_signal'])
         
@@ -631,7 +631,7 @@ def update_ai_log():
                     num_candles=20
                 )
             except Exception as e:
-                print(f"⚠️ 多時間框架分析失敗: {e}")
+                print(f"[WARNING] 多時間框架分析失敗: {e}")
         
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
@@ -794,7 +794,7 @@ def bybit_trading_worker(config):
                             num_candles=20
                         )
                     except Exception as e:
-                        print(f"⚠️ 多時間框架分析失敗: {e}")
+                        print(f"[WARNING] 多時間框架分析失敗: {e}")
                 
                 decision = _get_ai_decision(
                     market_data=market_data,
@@ -889,7 +889,7 @@ def _save_ai_prediction_log(
         app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
     
     model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] in ['dual', 'arbitrator'] else ""
-    counter_info = " [🔄 Counter-trend]" if log_entry['is_counter_trend'] else ""
+    counter_info = " [Counter-trend]" if log_entry['is_counter_trend'] else ""
     print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}{counter_info}")
     print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
@@ -945,12 +945,12 @@ if __name__ == '__main__':
     # 註冊模型選擇器 API 路由 (傳入 app_state 支持熱更新)
     if HAS_MODEL_SELECTOR:
         register_model_selector_routes(app, app_state)
-        print("✅ 模型選擇器功能已啟用 (支持熱更新)")
+        print("[OK] 模型選擇器功能已啟用 (支持熱更新)")
     
     # 註冊分析詳細 API 路由
     if HAS_ANALYSIS_DETAIL:
         register_analysis_detail_routes(app, app_state)
-        print("✅ 分析詳細功能已啟用")
+        print("[OK] 分析詳細功能已啟用")
     
     print("")
     print("=" * 60)
@@ -975,7 +975,7 @@ if __name__ == '__main__':
         print("    - Counter-trend operation support")
     
     if HAS_MODEL_SELECTOR:
-        print("    - Model selector with hot-reload (熱更新)")
+        print("    - Model selector with hot-reload")
     
     if HAS_ANALYSIS_DETAIL:
         print("    - Analysis detail view (prompt + model responses)")
