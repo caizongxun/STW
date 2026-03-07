@@ -1,0 +1,136 @@
+/* 側邊欄收納功能 CSS */
+
+/* 漢堡選單按鈕 */
+.sidebar-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1001;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    width: 45px;
+    height: 45px;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.sidebar-toggle:active {
+    transform: scale(0.95);
+}
+
+/* 漢堡線條 */
+.sidebar-toggle span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: white;
+    border-radius: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 展開狀態時的按鈕位置 */
+body:not(.sidebar-collapsed) .sidebar-toggle {
+    left: 290px;
+}
+
+/* 收起狀態時的 X 圖示 */
+body:not(.sidebar-collapsed) .sidebar-toggle span:nth-child(1) {
+    transform: rotate(45deg) translate(5px, 5px);
+}
+
+body:not(.sidebar-collapsed) .sidebar-toggle span:nth-child(2) {
+    opacity: 0;
+}
+
+body:not(.sidebar-collapsed) .sidebar-toggle span:nth-child(3) {
+    transform: rotate(-45deg) translate(6px, -6px);
+}
+
+/* 側邊欄動畫 */
+.sidebar {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+}
+
+/* 主內容區動畫 */
+.main-content {
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.sidebar-collapsed .main-content {
+    margin-left: 0;
+}
+
+/* 遮罩層 (手機版) */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body:not(.sidebar-collapsed) .sidebar-overlay {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* 響應式: 手機版 */
+@media (max-width: 768px) {
+    /* 預設收起 */
+    body {
+        /* 手機版預設狀態 */
+    }
+    
+    .sidebar {
+        z-index: 1000;
+    }
+    
+    body.sidebar-collapsed .sidebar {
+        transform: translateX(-100%);
+    }
+    
+    body:not(.sidebar-collapsed) .sidebar {
+        transform: translateX(0);
+    }
+    
+    .main-content {
+        margin-left: 0 !important;
+    }
+    
+    .sidebar-toggle {
+        left: 20px;
+    }
+    
+    body:not(.sidebar-collapsed) .sidebar-toggle {
+        left: 290px;
+    }
+}
+
+/* 平板版 */
+@media (min-width: 769px) and (max-width: 1024px) {
+    body.sidebar-collapsed .main-content {
+        margin-left: 0;
+    }
+}
