@@ -15,9 +15,9 @@ class ModelConfigManager:
         self.config = self._load_config()
     
     def _init_available_models(self) -> List[Dict]:
-        """初始化可用模型列表"""
+        """初始化可用模型列表 (2026年2月最新)"""
         return [
-            # Groq 模型
+            # ===== Groq 模型 (14,400/day) =====
             {
                 'id': 'groq_llama_70b',
                 'name': 'Llama 3.3 70B',
@@ -44,8 +44,21 @@ class ModelConfigManager:
                 'quality': 4,
                 'available': bool(os.getenv('GROQ_API_KEY'))
             },
+            {
+                'id': 'groq_qwen3_32b',
+                'name': 'Qwen3 32B',
+                'platform': 'Groq',
+                'model_name': 'qwen-2.5-32b',
+                'api_base': 'https://api.groq.com/openai/v1',
+                'api_key_env': 'GROQ_API_KEY',
+                'category': 'fast',
+                'speed': '1-3s',
+                'quota': '14,400/day',
+                'quality': 4,
+                'available': bool(os.getenv('GROQ_API_KEY'))
+            },
             
-            # Google 模型
+            # ===== Google 模型 (250-1,000/day) =====
             {
                 'id': 'google_gemini_flash',
                 'name': 'Gemini 2.0 Flash',
@@ -55,25 +68,12 @@ class ModelConfigManager:
                 'api_key_env': 'GOOGLE_API_KEY',
                 'category': 'fast',
                 'speed': '2-5s',
-                'quota': '1,500/day',
+                'quota': '250/day',
                 'quality': 5,
                 'available': bool(os.getenv('GOOGLE_API_KEY'))
             },
             
-            # OpenRouter 模型
-            {
-                'id': 'openrouter_deepseek_r1',
-                'name': 'DeepSeek R1 14B',
-                'platform': 'OpenRouter',
-                'model_name': 'deepseek/deepseek-r1:free',
-                'api_base': 'https://openrouter.ai/api/v1',
-                'api_key_env': 'OPENROUTER_API_KEY',
-                'category': 'arbitrator',
-                'speed': '10-20s',
-                'quota': '200/day',
-                'quality': 5,
-                'available': bool(os.getenv('OPENROUTER_API_KEY'))
-            },
+            # ===== OpenRouter 免費模型 =====
             {
                 'id': 'openrouter_llama_70b',
                 'name': 'Llama 3.3 70B',
@@ -82,8 +82,99 @@ class ModelConfigManager:
                 'api_base': 'https://openrouter.ai/api/v1',
                 'api_key_env': 'OPENROUTER_API_KEY',
                 'category': 'fast',
+                'speed': '3-6s',
+                'quota': '無限',
+                'quality': 5,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_llama_405b',
+                'name': 'Llama 3.1 405B',
+                'platform': 'OpenRouter',
+                'model_name': 'meta-llama/llama-3.1-405b-instruct:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'arbitrator',
+                'speed': '10-20s',
+                'quota': '無限',
+                'quality': 6,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_deepseek_r1',
+                'name': 'DeepSeek R1 (Reasoning)',
+                'platform': 'OpenRouter',
+                'model_name': 'deepseek/deepseek-r1:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'arbitrator',
+                'speed': '10-20s',
+                'quota': '無限',
+                'quality': 6,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_gemini_flash',
+                'name': 'Gemini 2.0 Flash Exp',
+                'platform': 'OpenRouter',
+                'model_name': 'google/gemini-2.0-flash-exp:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '無限',
+                'quality': 5,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_mistral_small',
+                'name': 'Mistral Small 3.1',
+                'platform': 'OpenRouter',
+                'model_name': 'mistralai/mistral-small-3.1:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '無限',
+                'quality': 4,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_qwen3_coder',
+                'name': 'Qwen3 Coder 480B',
+                'platform': 'OpenRouter',
+                'model_name': 'qwen/qwen-3-coder-480b:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'fast',
                 'speed': '5-10s',
-                'quota': '200/day',
+                'quota': '無限',
+                'quality': 5,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_devstral_2',
+                'name': 'Devstral 2 (Coding)',
+                'platform': 'OpenRouter',
+                'model_name': 'mistralai/devstral-2512:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'fast',
+                'speed': '5-10s',
+                'quota': '無限',
+                'quality': 5,
+                'available': bool(os.getenv('OPENROUTER_API_KEY'))
+            },
+            {
+                'id': 'openrouter_nemotron_nano',
+                'name': 'Nemotron 3 Nano 30B',
+                'platform': 'OpenRouter',
+                'model_name': 'nvidia/nemotron-3-nano-30b:free',
+                'api_base': 'https://openrouter.ai/api/v1',
+                'api_key_env': 'OPENROUTER_API_KEY',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '無限',
                 'quality': 4,
                 'available': bool(os.getenv('OPENROUTER_API_KEY'))
             },
@@ -98,11 +189,11 @@ class ModelConfigManager:
             except Exception as e:
                 print(f"讀取模型配置失敗: {e}")
         
-        # 預設配置（方案 B）
+        # 預設配置
         return {
             'model_a': 'groq_llama_70b',
-            'model_b': 'google_gemini_flash',
-            'arbitrator': 'groq_llama_70b'
+            'model_b': 'openrouter_llama_70b',
+            'arbitrator': 'openrouter_llama_405b'
         }
     
     def save_config(self, config: Dict) -> bool:
@@ -121,8 +212,8 @@ class ModelConfigManager:
         """重置為預設配置"""
         default_config = {
             'model_a': 'groq_llama_70b',
-            'model_b': 'google_gemini_flash',
-            'arbitrator': 'groq_llama_70b'
+            'model_b': 'openrouter_llama_70b',
+            'arbitrator': 'openrouter_llama_405b'
         }
         return self.save_config(default_config)
     
