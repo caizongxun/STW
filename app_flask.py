@@ -1,6 +1,7 @@
 """
 Flask 主伺服器 - 取代 Streamlit
-支持即時更新、多 Tab 同時操作、無閃爛
+支持即時更新、多 Tab 同時操作、無閃爍
+新增: 雙模型決策系統
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -23,10 +24,13 @@ from strategies.v13.backtester import V13Backtester
 try:
     from core.config_manager import ConfigManager
     from core.multi_api_manager import MultiAPIManager
+    from core.dual_model_agent import DualModelDecisionAgent
     HAS_CONFIG_MANAGER = True
-except ImportError:
+    HAS_DUAL_MODEL = True
+except ImportError as e:
     HAS_CONFIG_MANAGER = False
-    print("警告: 未找到 ConfigManager 或 MultiAPIManager，配置功能可能不可用")
+    HAS_DUAL_MODEL = False
+    print(f"警告: 部分功能不可用 - {e}")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -38,6 +42,9 @@ CASES_FILE = 'cases.json'
 
 app_state = {
     'ai_agent': None,
+    'dual_agent': None,  # 雙模型
+    'use_dual_model': False,  # 是否啟用雙模型
+    'dual_model_mode': 'consensus',  # consensus, vote, weighted
     'data_loader': None,
     'auto_update_enabled': False,
     'auto_update_thread': None,
@@ -60,6 +67,11 @@ def load_config():
         try:
             config = app_state['config_manager'].load()
             app_state['user_config'] = config
+            
+            # 載入雙模型配置
+            app_state['use_dual_model'] = config.get('use_dual_model', False)
+            app_state['dual_model_mode'] = config.get('dual_model_mode', 'consensus')
+            
             print(f"配置已載入: {CONFIG_FILE}")
             return config
         except Exception as e:
@@ -70,6 +82,8 @@ def load_config():
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
                 app_state['user_config'] = config
+                app_state['use_dual_model'] = config.get('use_dual_model', False)
+                app_state['dual_model_mode'] = config.get('dual_model_mode', 'consensus')
                 print(f"配置已載入: {CONFIG_FILE}")
                 return config
         except Exception as e:
@@ -80,6 +94,12 @@ def load_config():
 def save_config(config: Dict):
     try:
         app_state['user_config'] = config
+        
+        # 保存雙模型配置
+        if 'use_dual_model' in config:
+            app_state['use_dual_model'] = config['use_dual_model']
+        if 'dual_model_mode' in config:
+            app_state['dual_model_mode'] = config['dual_model_mode']
         
         if HAS_CONFIG_MANAGER and app_state['config_manager']:
             app_state['config_manager'].save(config)
@@ -121,6 +141,37 @@ def save_cases():
         return False
 
 
+def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optional[Dict]):
+    """獲取 AI 決策（單模型或雙模型）"""
+    
+    # 如果啟用雙模型且可用
+    if app_state['use_dual_model'] and HAS_DUAL_MODEL:
+        if not app_state['dual_agent']:
+            app_state['dual_agent'] = DualModelDecisionAgent()
+        
+        decision = app_state['dual_agent'].analyze_with_dual_models(
+            market_data=market_data,
+            account_info=account_info,
+            position_info=position_info,
+            mode=app_state['dual_model_mode']
+        )
+        decision['model_type'] = 'dual'
+        return decision
+    
+    # 否則使用單模型
+    else:
+        if not app_state['ai_agent']:
+            app_state['ai_agent'] = PositionAwareDeepSeekAgent()
+        
+        decision = app_state['ai_agent'].analyze_with_position(
+            market_data=market_data,
+            account_info=account_info,
+            position_info=position_info
+        )
+        decision['model_type'] = 'single'
+        return decision
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -131,8 +182,15 @@ def get_config():
     try:
         if HAS_CONFIG_MANAGER and app_state['config_manager']:
             config = app_state['config_manager'].get_for_display()
-            return jsonify(config)
-        return jsonify(app_state['user_config'])
+        else:
+            config = app_state['user_config']
+        
+        # 添加雙模型配置
+        config['use_dual_model'] = app_state['use_dual_model']
+        config['dual_model_mode'] = app_state['dual_model_mode']
+        config['has_dual_model'] = HAS_DUAL_MODEL
+        
+        return jsonify(config)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -160,6 +218,9 @@ def reset_config():
             app_state['config_manager'].reset()
         
         app_state['user_config'] = {}
+        app_state['use_dual_model'] = False
+        app_state['dual_model_mode'] = 'consensus'
+        
         if os.path.exists(CONFIG_FILE):
             os.remove(CONFIG_FILE)
         
@@ -242,6 +303,29 @@ def get_api_stats():
         })
 
 
+@app.route('/api/dual-model/stats', methods=['GET'])
+def get_dual_model_stats():
+    """獲取雙模型統計"""
+    try:
+        if not app_state.get('dual_agent'):
+            return jsonify({
+                'enabled': False,
+                'performance': None
+            })
+        
+        performance = app_state['dual_agent'].get_model_performance()
+        agreement_rate = app_state['dual_agent'].get_agreement_rate(last_n=10)
+        
+        return jsonify({
+            'enabled': True,
+            'mode': app_state['dual_model_mode'],
+            'performance': performance,
+            'recent_agreement_rate': agreement_rate
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/cases/list', methods=['GET'])
 def list_cases():
     return jsonify({'cases': app_state['cases']})
@@ -290,9 +374,6 @@ def analyze_market():
         
         latest_data = prepare_market_features(df.iloc[-1], df)
         
-        if not app_state['ai_agent']:
-            app_state['ai_agent'] = PositionAwareDeepSeekAgent()
-        
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
             position_info = app_state['bybit_trader'].get_position()
@@ -305,11 +386,8 @@ def analyze_market():
             }
             position_info = None
         
-        decision = app_state['ai_agent'].analyze_with_position(
-            market_data=latest_data,
-            account_info=account_info,
-            position_info=position_info
-        )
+        # 使用統一函數獲取決策
+        decision = _get_ai_decision(latest_data, account_info, position_info)
         
         latest_price = float(df['close'].iloc[-1])
         timestamp = df['timestamp'].iloc[-1]
@@ -333,6 +411,7 @@ def analyze_market():
             )
         
         print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
+        print(f"[ANALYZE] Model type: {decision.get('model_type', 'unknown')}")
         
         return jsonify(app_state['latest_signal'])
         
@@ -389,9 +468,6 @@ def update_ai_log():
         if not app_state['data_loader']:
             app_state['data_loader'] = RealtimeDataLoader()
         
-        if not app_state['ai_agent']:
-            app_state['ai_agent'] = PositionAwareDeepSeekAgent()
-        
         df = app_state['data_loader'].load_data(symbol, timeframe)
         
         if df is None or len(df) < 200:
@@ -412,11 +488,7 @@ def update_ai_log():
             }
             position_info = None
         
-        decision = app_state['ai_agent'].analyze_with_position(
-            market_data=market_data,
-            account_info=account_info,
-            position_info=position_info
-        )
+        decision = _get_ai_decision(market_data, account_info, position_info)
         
         _save_ai_prediction_log(
             timestamp=current_candle['timestamp'],
@@ -538,9 +610,6 @@ def bybit_trading_worker(config):
             if not app_state['data_loader']:
                 app_state['data_loader'] = RealtimeDataLoader()
             
-            if not app_state['ai_agent']:
-                app_state['ai_agent'] = PositionAwareDeepSeekAgent()
-            
             df = app_state['data_loader'].load_data(symbol, timeframe)
             
             if df is not None and len(df) > 200:
@@ -549,11 +618,7 @@ def bybit_trading_worker(config):
                 account_info = trader.get_account_info()
                 position_info = trader.get_position()
                 
-                decision = app_state['ai_agent'].analyze_with_position(
-                    market_data=market_data,
-                    account_info=account_info,
-                    position_info=position_info
-                )
+                decision = _get_ai_decision(market_data, account_info, position_info)
                 
                 _save_ai_prediction_log(
                     timestamp=current_candle['timestamp'],
@@ -615,6 +680,8 @@ def _save_ai_prediction_log(
         'take_profit': decision.get('take_profit'),
         'reasoning': decision.get('reasoning', '')[:200],
         'risk_assessment': decision.get('risk_assessment', 'MEDIUM'),
+        'model_type': decision.get('model_type', 'single'),
+        'agreement': decision.get('agreement'),
         'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
         'actual_direction': None,
         'is_correct': None,
@@ -635,7 +702,8 @@ def _save_ai_prediction_log(
     if len(app_state['ai_prediction_logs']) > 100:
         app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
     
-    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%)")
+    model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] == 'dual' else ""
+    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}")
     print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
 
@@ -701,12 +769,23 @@ if __name__ == '__main__':
     print("    - Learning cases library")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
+    
+    if HAS_DUAL_MODEL:
+        print("    - Dual-model decision system (NEW!)")
+        print(f"      Mode: {app_state['dual_model_mode']}")
+        print(f"      Enabled: {app_state['use_dual_model']}")
+    
     print("=" * 60)
     
     if HAS_CONFIG_MANAGER:
         print("  Config Manager: Enabled")
     else:
         print("  Config Manager: Disabled (install: pip install cryptography google-generativeai)")
+    
+    if HAS_DUAL_MODEL:
+        print("  Dual Model: Enabled")
+    else:
+        print("  Dual Model: Disabled")
     
     print("=" * 60)
     print("")
