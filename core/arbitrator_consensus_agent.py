@@ -1,5 +1,5 @@
 """
-兩階段仲裁決策系統 - 方案 B + 多層備用機制 + 配置檔熱更新
+兩階段仲裁決策系統 - 方案 B + 多層備用機制 + 配置檔熱更新 + 多時間框架
 
 主力配置（方案 B）：
   - Model A: Llama 3.3 70B (Groq) - 第一選擇
@@ -16,12 +16,15 @@
   - 熱更新: 修改配置後自動重新載入模型
   - 自定義優先序: 在 Web UI 調整模型順序
   - 詳細記錄: 記錄每次 prompt 和模型回應
+  - 多時間框架: 15m (主) + 1h + 4h 看大趨勢
+  - 逆勢操作: 允許在信心度高時做 1h 內逆勢
 
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
   - 每天 16,400+ 次請求
   - 失敗自動降級，無需手動介入
   - Web UI 修改立即生效
+  - 多時間框架避免小時間框架噪音
 """
 import json
 import time
@@ -130,7 +133,7 @@ class GeminiModel(ModelInterface):
 
 class ArbitratorConsensusAgent:
     """
-    兩階段仲裁決策引擎 + 多層備用機制 + 配置檔熱更新
+    兩階段仲裁決策引擎 + 多層備用機制 + 配置檔熱更新 + 多時間框架
     方案 B: Groq + Google 雙平台
     失敗自動降級備用
     """
@@ -293,7 +296,7 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("🏆 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持")
+        print("🏆 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持 + 多時間框架")
         print("="*70)
         
         print("\n🤖 快速模型 A (按優先度):")
@@ -348,7 +351,7 @@ class ArbitratorConsensusAgent:
             
             if instance:
                 self.arbitrator_candidates.append(instance)
-                print(f"✅ {idx}. {config['name']} ({config['provider'].upper()})")
+                print(f"✅ {idx}. {config['name']} ({config['provider'].upper())")
             else:
                 print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
@@ -363,6 +366,8 @@ class ArbitratorConsensusAgent:
         print("📝 決策歷史: decision_history.json")
         print(f"⚙️ 配置檔: {self.config_file}")
         print("🔄 熱更新: 修改配置立即生效 (無需重啟)")
+        print("🕒 多時間框架: 15m (主) + 1h + 4h 分析")
+        print("🔄 逆勢操作: 允許在 1h 內高信心度逆勢")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
@@ -405,8 +410,23 @@ class ArbitratorConsensusAgent:
         account_info: Dict,
         position_info: Optional[Dict] = None,
         historical_candles: Optional[List[Dict]] = None,
-        successful_cases: Optional[List[Dict]] = None
+        successful_cases: Optional[List[Dict]] = None,
+        multi_timeframe_data: Optional[Dict] = None
     ) -> Dict:
+        """
+        帶多時間框架分析的仲裁決策
+        
+        Args:
+            market_data: 當前 15m 市場數據
+            account_info: 賬戶資訊
+            position_info: 持倉資訊
+            historical_candles: 歷史 K 棒 (15m)
+            successful_cases: 成功案例
+            multi_timeframe_data: 多時間框架數據 {
+                '1h': {'current': {...}, 'candles': [...]},
+                '4h': {'current': {...}, 'candles': [...]}
+            }
+        """
         if not self.primary_model_a and not self.primary_model_b:
             print("⚠️ 快速模型未配置，降級為單模型")
             from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
@@ -420,7 +440,8 @@ class ArbitratorConsensusAgent:
         recent_decisions = self._get_recent_decisions(5)
         system_prompt, user_prompt = self._prepare_prompts(
             market_data, account_info, position_info,
-            historical_candles, successful_cases, recent_decisions
+            historical_candles, successful_cases, recent_decisions,
+            multi_timeframe_data
         )
         
         # 記錄 prompt
@@ -486,7 +507,8 @@ class ArbitratorConsensusAgent:
                 final_decision = self._arbitrate(
                     market_data, account_info, position_info,
                     decision_a, decision_b,
-                    historical_candles, successful_cases, recent_decisions
+                    historical_candles, successful_cases, recent_decisions,
+                    multi_timeframe_data
                 )
                 final_decision['arbitration'] = True
         elif decision_a:
@@ -537,7 +559,8 @@ class ArbitratorConsensusAgent:
         decision_b: Dict,
         historical_candles: Optional[List[Dict]],
         successful_cases: Optional[List[Dict]],
-        recent_decisions: List[Dict]
+        recent_decisions: List[Dict],
+        multi_timeframe_data: Optional[Dict] = None
     ) -> Dict:
         if not self.arbitrator_candidates:
             print("⚠️ 仲裁者未配置，選擇信心度較高的模型")
@@ -566,13 +589,23 @@ class ArbitratorConsensusAgent:
             "市場數據:", json.dumps(market_data, indent=2, ensure_ascii=False),
             "\n賬戶資訊:", json.dumps(account_info, indent=2, ensure_ascii=False),
             "\n持倉:", json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無',
-            "\n---\n最近決策:", json.dumps(recent_decisions, indent=2, ensure_ascii=False) if recent_decisions else '[]',
+            "\n---\n最近決策:", json.dumps(recent_decisions, indent=2, ensure_ascii=False) if recent_decisions else '[]'
+        ]
+        
+        # 加入多時間框架資訊
+        if multi_timeframe_data:
+            user_prompt_parts.extend([
+                "\n---\n多時間框架資訊:",
+                json.dumps(multi_timeframe_data, indent=2, ensure_ascii=False)
+            ])
+        
+        user_prompt_parts.extend([
             "\n---\nModel A 分析:",
             f"決策: {decision_a['action']}, 信心: {decision_a['confidence']}%, 理由: {decision_a['reasoning']}",
             "\n---\nModel B 分析:",
             f"決策: {decision_b['action']}, 信心: {decision_b['confidence']}%, 理由: {decision_b['reasoning']}",
             "\n---\n請作為仲裁者給出最終判斷。"
-        ]
+        ])
         arbitrator_user_prompt = "\n".join(user_prompt_parts)
         
         for idx, arbitrator in enumerate(self.arbitrator_candidates):
@@ -618,26 +651,34 @@ class ArbitratorConsensusAgent:
             'risk_assessment': decision_a['risk_assessment']
         }
     
-    def _prepare_prompts(self, market_data, account_info, position_info, historical_candles, successful_cases, recent_decisions) -> Tuple[str, str]:
+    def _prepare_prompts(self, market_data, account_info, position_info, historical_candles, successful_cases, recent_decisions, multi_timeframe_data=None) -> Tuple[str, str]:
         system_prompt = """專業加密貨幣交易 AI。
 
 你的任務:
 1. 分析當前市場數據、歷史 K 棒走勢、技術指標
 2. 參考最近決策結果，避免重複操作
 3. 學習成功案例的模式
-4. 給出明確的交易建議
+4. **結合多時間框架** (15m + 1h + 4h) 看清大趨勢
+5. 給出明確的交易建議
 
 重要原則:
 - 避免重複下單、矛盾操作、頻繁交易
 - 不要在持有多單時再次 OPEN_LONG
 - 不要在沒有持倉時 CLOSE
+- **主時間框架為 15分鐘**，但要參考 1h 和 4h 趨勢
+- **允許逆勢操作**：在信心度高 (>75%) 且技術指標強勁時，可以在 **1小時內** 做 15分鐘的逆勢操作
+- **逆勢條件**：
+  * 15m 超賣/超買 (RSI<30 or RSI>70)
+  * 1h 趨勢明確 (但 15m 短線反轉訊號)
+  * 信心度 > 75%
+  * 停損要緊 (1-2%)
 
 輸出 JSON 格式:
-{"action": "OPEN_LONG|OPEN_SHORT|CLOSE|HOLD", "confidence": 0-100, "leverage": 1-5, "position_size_usdt": 數字, "entry_price": 數字, "stop_loss": 數字, "take_profit": 數字, "reasoning": "詳細理由", "risk_assessment": "LOW|MEDIUM|HIGH"}"""
+{"action": "OPEN_LONG|OPEN_SHORT|CLOSE|HOLD", "confidence": 0-100, "leverage": 1-5, "position_size_usdt": 數字, "entry_price": 數字, "stop_loss": 數字, "take_profit": 數字, "reasoning": "詳細理由", "risk_assessment": "LOW|MEDIUM|HIGH", "is_counter_trend": true|false}"""
         
         # 準備 user prompt 部分
         user_prompt_parts = [
-            "=== 市場數據 ===",
+            "=== 市場數據 (15m 主時間框架) ===",
             json.dumps(market_data, indent=2, ensure_ascii=False),
             "\n=== 賬戶資訊 ===",
             json.dumps(account_info, indent=2, ensure_ascii=False),
@@ -645,10 +686,19 @@ class ArbitratorConsensusAgent:
             json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
         ]
         
+        # 加入多時間框架資料
+        if multi_timeframe_data:
+            user_prompt_parts.extend([
+                "\n=== 多時間框架分析 ===",
+                "\n** 注意 **：使用 1h 和 4h 判斷大趨勢，15m 做進出場時機",
+                "\n** 逆勢策略 **：如果 15m 超賣且 1h 看漲，可以高信心做多 (或相反)",
+                json.dumps(multi_timeframe_data, indent=2, ensure_ascii=False)
+            ])
+        
         # 加入歷史 K 棒 (前 20 根)
         if historical_candles and len(historical_candles) > 0:
             user_prompt_parts.extend([
-                f"\n=== 歷史 K 棒 (前 {len(historical_candles)} 根) ===",
+                f"\n=== 歷史 K 棒 (15m, 前 {len(historical_candles)} 根) ===",
                 json.dumps(historical_candles, indent=2, ensure_ascii=False)
             ])
         
@@ -677,20 +727,24 @@ class ArbitratorConsensusAgent:
             if '{' in content and '}' in content:
                 start = content.index('{')
                 end = content.rindex('}') + 1
-                return json.loads(content[start:end])
+                decision = json.loads(content[start:end])
+                # 確保有 is_counter_trend 欄位
+                if 'is_counter_trend' not in decision:
+                    decision['is_counter_trend'] = False
+                return decision
         except:
             pass
         return {
             'action': 'HOLD', 'confidence': 30, 'leverage': 1, 'position_size_usdt': 0,
             'entry_price': 0, 'stop_loss': 0, 'take_profit': 0,
-            'reasoning': '解析失敗', 'risk_assessment': 'HIGH'
+            'reasoning': '解析失敗', 'risk_assessment': 'HIGH', 'is_counter_trend': False
         }
     
     def _emergency_hold(self) -> Dict:
         return {
             'action': 'HOLD', 'confidence': 0, 'leverage': 1, 'position_size_usdt': 0,
             'entry_price': 0, 'stop_loss': 0, 'take_profit': 0,
-            'reasoning': '緊急 HOLD: 模型失敗', 'risk_assessment': 'HIGH'
+            'reasoning': '緊急 HOLD: 模型失敗', 'risk_assessment': 'HIGH', 'is_counter_trend': False
         }
     
     def get_last_analysis_detail(self) -> Optional[Dict]:
