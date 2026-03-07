@@ -1,5 +1,5 @@
 """
-兩階段仲裁決策系統 - 方案 B + 多層備用機制
+兩階段仲裁決策系統 - 方案 B + 多層備用機制 + 配置檔熱更新
 
 主力配置（方案 B）：
   - Model A: Llama 3.3 70B (Groq) - 第一選擇
@@ -11,10 +11,16 @@
   - Model B 失敗 → Llama 70B (Groq) → Mixtral 8x7B (Groq)
   - 仲裁者失敗 → Gemini Flash (Google) → Mixtral 8x7B (Groq) → DeepSeek R1 (OpenRouter)
 
+新功能：
+  - 配置檔支持: arbitrator_config.json
+  - 熱更新: 修改配置後自動重新載入模型
+  - 自定義優先序: 在 Web UI 調整模型順序
+
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
   - 每天 16,400+ 次請求
   - 失敗自動降級，無需手動介入
+  - Web UI 修改立即生效
 """
 import json
 import time
@@ -124,12 +130,32 @@ class GeminiModel(ModelInterface):
 
 class ArbitratorConsensusAgent:
     """
-    兩階段仲裁決策引擎 + 多層備用機制
+    兩階段仲裁決策引擎 + 多層備用機制 + 配置檔熱更新
     方案 B: Groq + Google 雙平台
     失敗自動降級備用
     """
     
-    def __init__(self):
+    # 預設模型配置 (當無配置檔時使用)
+    DEFAULT_CONFIG = {
+        'model_a_priority': [
+            {'provider': 'groq', 'model': 'llama-3.3-70b-versatile', 'name': 'Llama_70B'},
+            {'provider': 'google', 'model': 'gemini-2.5-flash', 'name': 'Gemini_Flash'},
+            {'provider': 'groq', 'model': 'mixtral-8x7b-32768', 'name': 'Mixtral_8x7B'}
+        ],
+        'model_b_priority': [
+            {'provider': 'google', 'model': 'gemini-2.5-flash', 'name': 'Gemini_Flash'},
+            {'provider': 'groq', 'model': 'llama-3.3-70b-versatile', 'name': 'Llama_70B'},
+            {'provider': 'groq', 'model': 'mixtral-8x7b-32768', 'name': 'Mixtral_8x7B'}
+        ],
+        'arbitrator_priority': [
+            {'provider': 'groq', 'model': 'llama-3.3-70b-versatile', 'name': 'Llama_70B'},
+            {'provider': 'google', 'model': 'gemini-2.5-flash', 'name': 'Gemini_Flash'},
+            {'provider': 'groq', 'model': 'mixtral-8x7b-32768', 'name': 'Mixtral_8x7B'},
+            {'provider': 'openrouter', 'model': 'deepseek/deepseek-r1:free', 'name': 'DeepSeek_R1'}
+        ]
+    }
+    
+    def __init__(self, config_file: str = 'arbitrator_config.json'):
         # 主力模型
         self.primary_model_a = None
         self.primary_model_b = None
@@ -145,11 +171,99 @@ class ArbitratorConsensusAgent:
         self.arbitration_count = 0
         self.agreement_count = 0
         
+        # 配置檔
+        self.config_file = Path(config_file)
+        self.model_config = self._load_config()
+        
         # 決策歷史檔案
         self.history_file = Path('decision_history.json')
         self._load_history()
         
         self._init_models()
+    
+    def _load_config(self) -> Dict:
+        """讀取配置檔，無檔案則使用預設配置"""
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    print(f"✅ 讀取配置: {self.config_file}")
+                    return config
+        except Exception as e:
+            print(f"⚠️ 讀取配置失敗: {e}")
+        
+        print("📝 使用預設配置")
+        return self.DEFAULT_CONFIG
+    
+    def _save_config(self):
+        """保存當前配置"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.model_config, f, indent=2, ensure_ascii=False)
+            print(f"✅ 配置已保存: {self.config_file}")
+        except Exception as e:
+            print(f"⚠️ 保存配置失敗: {e}")
+    
+    def reload_models(self):
+        """熱更新: 重新讀取配置並重新載入模型"""
+        print("\n" + "="*70)
+        print("🔄 熱更新: 重新載入模型配置...")
+        print("="*70)
+        
+        self.model_config = self._load_config()
+        
+        # 清空舊模型
+        self.primary_model_a = None
+        self.primary_model_b = None
+        self.backup_models_a = []
+        self.backup_models_b = []
+        self.arbitrator_candidates = []
+        
+        # 重新初始化
+        self._init_models()
+        
+        print("✅ 模型熱更新完成!")
+        print("="*70 + "\n")
+    
+    def _create_model_instance(self, provider: str, model: str, name: str, priority: int):
+        """根據 provider 創建模型實例"""
+        if provider == 'groq':
+            api_key = os.getenv('GROQ_API_KEY')
+            if not api_key:
+                return None
+            return OpenAICompatibleModel(
+                name=name,
+                api_key=api_key,
+                base_url='https://api.groq.com/openai/v1',
+                model=model,
+                priority=priority
+            )
+        
+        elif provider == 'google':
+            api_key = os.getenv('GOOGLE_API_KEY')
+            if not api_key:
+                return None
+            return GeminiModel(
+                name=name,
+                api_key=api_key,
+                base_url='',
+                model=model,
+                priority=priority
+            )
+        
+        elif provider == 'openrouter':
+            api_key = os.getenv('OPENROUTER_API_KEY')
+            if not api_key:
+                return None
+            return OpenAICompatibleModel(
+                name=name,
+                api_key=api_key,
+                base_url='https://openrouter.ai/api/v1',
+                model=model,
+                priority=priority
+            )
+        
+        return None
     
     def _load_history(self):
         try:
@@ -192,7 +306,7 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("🏆 方案 B: 雙平台均衡 + 多層備用機制")
+        print("🏆 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持")
         print("="*70)
         
         # ====================
@@ -200,144 +314,81 @@ class ArbitratorConsensusAgent:
         # ====================
         print("\n🤖 快速模型 A (按優先度):")
         
-        # 主力: Groq Llama 70B
-        if os.getenv('GROQ_API_KEY'):
-            self.primary_model_a = OpenAICompatibleModel(
-                name='Llama_70B_Primary',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='llama-3.3-70b-versatile',
-                priority=1
+        model_a_configs = self.model_config.get('model_a_priority', self.DEFAULT_CONFIG['model_a_priority'])
+        for idx, config in enumerate(model_a_configs, 1):
+            instance = self._create_model_instance(
+                provider=config['provider'],
+                model=config['model'],
+                name=f"{config['name']}_A{idx}",
+                priority=idx
             )
-            print("✅ 1. Llama 3.3 70B (Groq) - 主力模型")
-        
-        # 備用 1: Gemini 2.5 Flash (修正模型名稱)
-        if os.getenv('GOOGLE_API_KEY'):
-            backup = GeminiModel(
-                name='Gemini_Backup_A',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='',
-                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
-                priority=2
-            )
-            self.backup_models_a.append(backup)
-            print("✅ 2. Gemini 2.5 Flash (Google) - 備用 1")
-        
-        # 備用 2: Groq Mixtral
-        if os.getenv('GROQ_API_KEY'):
-            backup = OpenAICompatibleModel(
-                name='Mixtral_Backup_A',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='mixtral-8x7b-32768',
-                priority=3
-            )
-            self.backup_models_a.append(backup)
-            print("✅ 3. Mixtral 8x7B (Groq) - 備用 2")
+            
+            if instance:
+                if idx == 1:
+                    self.primary_model_a = instance
+                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
+                else:
+                    self.backup_models_a.append(instance)
+                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
+            else:
+                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
         # ====================
         # Model B: 主力 + 備用
         # ====================
         print("\n🤖 快速模型 B (按優先度):")
         
-        # 主力: Gemini 2.5 Flash (修正模型名稱)
-        if os.getenv('GOOGLE_API_KEY'):
-            self.primary_model_b = GeminiModel(
-                name='Gemini_Primary',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='',
-                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
-                priority=1
+        model_b_configs = self.model_config.get('model_b_priority', self.DEFAULT_CONFIG['model_b_priority'])
+        for idx, config in enumerate(model_b_configs, 1):
+            instance = self._create_model_instance(
+                provider=config['provider'],
+                model=config['model'],
+                name=f"{config['name']}_B{idx}",
+                priority=idx
             )
-            print("✅ 1. Gemini 2.5 Flash (Google) - 主力模型")
-        
-        # 備用 1: Groq Llama 70B
-        if os.getenv('GROQ_API_KEY'):
-            backup = OpenAICompatibleModel(
-                name='Llama_Backup_B',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='llama-3.3-70b-versatile',
-                priority=2
-            )
-            self.backup_models_b.append(backup)
-            print("✅ 2. Llama 3.3 70B (Groq) - 備用 1")
-        
-        # 備用 2: Groq Mixtral
-        if os.getenv('GROQ_API_KEY'):
-            backup = OpenAICompatibleModel(
-                name='Mixtral_Backup_B',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='mixtral-8x7b-32768',
-                priority=3
-            )
-            self.backup_models_b.append(backup)
-            print("✅ 3. Mixtral 8x7B (Groq) - 備用 2")
+            
+            if instance:
+                if idx == 1:
+                    self.primary_model_b = instance
+                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
+                else:
+                    self.backup_models_b.append(instance)
+                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
+            else:
+                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
         # ====================
         # 仲裁者候選人
         # ====================
         print("\n🧠 仲裁者候選人 (按優先度):")
         
-        # 1. Groq Llama 70B (移除錯誤的 thinking 模型)
-        if os.getenv('GROQ_API_KEY'):
-            candidate = OpenAICompatibleModel(
-                name='Llama_Arbitrator',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='llama-3.3-70b-versatile',
-                priority=1
+        arbitrator_configs = self.model_config.get('arbitrator_priority', self.DEFAULT_CONFIG['arbitrator_priority'])
+        for idx, config in enumerate(arbitrator_configs, 1):
+            instance = self._create_model_instance(
+                provider=config['provider'],
+                model=config['model'],
+                name=f"{config['name']}_Arb{idx}",
+                priority=idx
             )
-            self.arbitrator_candidates.append(candidate)
-            print("✅ 1. Llama 3.3 70B (Groq) - 速度快")
-        
-        # 2. Gemini 2.5 Flash
-        if os.getenv('GOOGLE_API_KEY'):
-            candidate = GeminiModel(
-                name='Gemini_Arbitrator',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='',
-                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
-                priority=2
-            )
-            self.arbitrator_candidates.append(candidate)
-            print("✅ 2. Gemini 2.5 Flash (Google) - 穩定")
-        
-        # 3. Groq Mixtral
-        if os.getenv('GROQ_API_KEY'):
-            candidate = OpenAICompatibleModel(
-                name='Mixtral_Arbitrator',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='mixtral-8x7b-32768',
-                priority=3
-            )
-            self.arbitrator_candidates.append(candidate)
-            print("✅ 3. Mixtral 8x7B (Groq) - 備用")
-        
-        # 4. DeepSeek R1 (OpenRouter)
-        if os.getenv('OPENROUTER_API_KEY'):
-            candidate = OpenAICompatibleModel(
-                name='DeepSeek_R1',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-r1:free',
-                priority=4
-            )
-            self.arbitrator_candidates.append(candidate)
-            print("✅ 4. DeepSeek R1 (OpenRouter) - 最後備用")
+            
+            if instance:
+                self.arbitrator_candidates.append(instance)
+                print(f"✅ {idx}. {config['name']} ({config['provider'].upper()})")
+            else:
+                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
         # 統計
         print("\n📊 系統統計:")
-        print(f"  Model A: 1 主力 + {len(self.backup_models_a)} 備用")
-        print(f"  Model B: 1 主力 + {len(self.backup_models_b)} 備用")
+        print(f"  Model A: {1 if self.primary_model_a else 0} 主力 + {len(self.backup_models_a)} 備用")
+        print(f"  Model B: {1 if self.primary_model_b else 0} 主力 + {len(self.backup_models_b)} 備用")
         print(f"  仲裁者: {len(self.arbitrator_candidates)} 候選人")
         
         print("\n💡 策略: 主力模型失敗 → 自動嘗試備用模型")
         print("✅ 跨平台: Groq + Google + OpenRouter")
         print("🆓 每天約 16,400+ 次請求")
         print("📝 決策歷史: decision_history.json")
+        print(f"⚙️ 配置檔: {self.config_file}")
+        print("🔄 熱更新: 修改配置立即生效 (無需重啟)")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
