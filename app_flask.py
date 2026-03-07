@@ -190,9 +190,10 @@ def test_apis():
         for provider in api_manager.providers:
             provider_info = {
                 'name': provider.name,
-                'model': provider.model_name,
+                'model': provider.model,
                 'available': provider.is_available,
-                'priority': provider.priority
+                'priority': provider.priority,
+                'daily_usage': f"{provider.daily_count}/{provider.daily_limit}"
             }
             providers.append(provider_info)
             
