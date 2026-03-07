@@ -3,6 +3,7 @@
 讓用戶在 Web UI 自由選擇 Model A, Model B, 仲裁者
 修正: Google Gemini 正確模型名稱 (2026年3月)
 新增: 40+ 免費模型 (含 GitHub Models + Cloudflare Workers AI)
+修復: 移除已下架的 Groq Mixtral 8x7B
 """
 import json
 import os
@@ -50,17 +51,31 @@ class ModelConfigManager:
                 'available': bool(os.getenv('GROQ_API_KEY'))
             },
             {
-                'id': 'groq_mixtral',
-                'name': 'Mixtral 8x7B',
+                'id': 'groq_llama_8b',
+                'name': 'Llama 3.1 8B ⚡',
                 'platform': 'Groq',
-                'model_name': 'mixtral-8x7b-32768',
+                'model_name': 'llama-3.1-8b-instant',
                 'api_base': 'https://api.groq.com/openai/v1',
                 'api_key_env': 'GROQ_API_KEY',
                 'category': 'fast',
-                'speed': '1-3s',
+                'speed': '0.5-1s',
+                'quota': '14,400/day',
+                'quality': 3,
+                'recommended_for': '超快速分析',
+                'available': bool(os.getenv('GROQ_API_KEY'))
+            },
+            {
+                'id': 'groq_gemma2_9b',
+                'name': 'Gemma 2 9B ⚡',
+                'platform': 'Groq',
+                'model_name': 'gemma2-9b-it',
+                'api_base': 'https://api.groq.com/openai/v1',
+                'api_key_env': 'GROQ_API_KEY',
+                'category': 'fast',
+                'speed': '1-2s',
                 'quota': '14,400/day',
                 'quality': 4,
-                'recommended_for': '常規分析',
+                'recommended_for': '輕量分析',
                 'available': bool(os.getenv('GROQ_API_KEY'))
             },
             
@@ -415,7 +430,7 @@ class ModelConfigManager:
         for model in self.available_models:
             api_key_env = model['api_key_env']
             
-            # Cloudflare 需要兩個 key
+            # Cloudflare 需要兩個key
             if 'account_id_env' in model:
                 account_id_env = model['account_id_env']
                 model['available'] = bool(os.getenv(api_key_env) and os.getenv(account_id_env))
