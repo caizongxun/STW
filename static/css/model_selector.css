@@ -1,18 +1,18 @@
 /* 模型選擇器樣式 */
 
 .model-selector-panel {
-    background: white;
+    background: #131824;
     border-radius: 8px;
     padding: 20px;
     margin: 20px 0;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    border: 1px solid #252c3f;
 }
 
 .model-selector-panel h3 {
     margin-top: 0;
     margin-bottom: 20px;
-    color: #333;
-    border-bottom: 2px solid #4CAF50;
+    color: #00d4ff;
+    border-bottom: 2px solid #00d4ff;
     padding-bottom: 10px;
 }
 
@@ -22,7 +22,7 @@
 
 .model-label {
     font-weight: bold;
-    color: #555;
+    color: #8b92a8;
     display: block;
     margin-bottom: 8px;
 }
@@ -30,35 +30,41 @@
 .model-select {
     width: 100%;
     padding: 10px;
-    border: 2px solid #ddd;
+    border: 1px solid #252c3f;
     border-radius: 5px;
     font-size: 14px;
-    background: white;
+    background: #0a0e1a;
+    color: #ffffff;
     cursor: pointer;
     transition: all 0.3s;
 }
 
 .model-select:hover {
-    border-color: #4CAF50;
+    border-color: #00d4ff;
 }
 
 .model-select:focus {
     outline: none;
-    border-color: #4CAF50;
-    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+    border-color: #00d4ff;
+    box-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
+}
+
+.model-select option {
+    background: #0a0e1a;
+    color: #ffffff;
 }
 
 .model-select option:disabled {
-    color: #999;
+    color: #555;
 }
 
 .model-info {
     margin-top: 8px;
     padding: 8px;
-    background: white;
+    background: #0a0e1a;
     border-radius: 5px;
     min-height: 30px;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #252c3f;
 }
 
 .model-details {
@@ -92,7 +98,7 @@
 .model-quota,
 .model-quality {
     font-size: 12px;
-    color: #666;
+    color: #8b92a8;
 }
 
 .model-select-actions {
@@ -112,23 +118,24 @@
 }
 
 .btn-primary {
-    background: #4CAF50;
-    color: white;
+    background: #00d4ff;
+    color: #0a0e1a;
 }
 
 .btn-primary:hover {
-    background: #45a049;
+    background: #00bfea;
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 8px rgba(0, 212, 255, 0.3);
 }
 
 .btn-secondary {
-    background: #f44336;
-    color: white;
+    background: #1a2033;
+    color: #ffffff;
+    border: 1px solid #252c3f;
 }
 
 .btn-secondary:hover {
-    background: #da190b;
+    background: #252c3f;
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
@@ -143,27 +150,27 @@
 }
 
 .status-success {
-    background: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
+    background: rgba(0, 255, 136, 0.2);
+    color: #00ff88;
+    border: 1px solid #00ff88;
 }
 
 .status-error {
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+    background: rgba(255, 68, 68, 0.2);
+    color: #ff4444;
+    border: 1px solid #ff4444;
 }
 
 .status-warning {
-    background: #fff3cd;
-    color: #856404;
-    border: 1px solid #ffeaa7;
+    background: rgba(255, 170, 0, 0.2);
+    color: #ffaa00;
+    border: 1px solid #ffaa00;
 }
 
 .status-info {
-    background: #d1ecf1;
-    color: #0c5460;
-    border: 1px solid #bee5eb;
+    background: rgba(0, 212, 255, 0.2);
+    color: #00d4ff;
+    border: 1px solid #00d4ff;
 }
 
 /* 響應式設計 */
