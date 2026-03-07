@@ -32,12 +32,13 @@
   - 失敗自動降級，無需手動介入
   - Web UI 修改立即生效
   - 多時間框架避免小時間框架噪音
-  - 三層把關減少错誤交易
+  - 三層把關減少錯誤交易
 
 修復：
   - Payload Too Large: 減少歷史 K 棒數量 (20->10)
   - Circular Reference: 移除 analysis_detail 循環引用
   - JSON 解析錯誤: 使用強健解析器自動修復
+  - AttributeError: 修正 trading_executor 初始化順序
 """
 import json
 import time
@@ -198,9 +199,7 @@ class ArbitratorConsensusAgent:
         self.history_file = Path('decision_history.json')
         self._load_history()
         
-        self._init_models()
-        
-        # 初始化交易執行審核員
+        # 初始化交易執行審核員 (必須在 _init_models() 之前)
         self.trading_executor = None
         self.enable_executor = self.model_config.get('enable_trading_executor', True)
         if self.enable_executor:
@@ -211,6 +210,9 @@ class ArbitratorConsensusAgent:
             except Exception as e:
                 print(f"[WARNING] 交易執行審核員無法啟動: {e}")
                 self.trading_executor = None
+        
+        # 初始化模型 (必須在 trading_executor 之後)
+        self._init_models()
     
     def _load_config(self) -> Dict:
         try:
