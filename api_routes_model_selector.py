@@ -1,6 +1,7 @@
 """
 模型選擇器 API 路由
 支持熱更新(不用重啟伺服器)
+同步重載仲裁系統配置
 """
 from flask import jsonify, request
 from core.model_config_manager import ModelConfigManager
@@ -31,16 +32,26 @@ def register_model_selector_routes(app, app_state):
         print("="*60)
         
         try:
-            # 清除舊的 agents
+            # 1. 清除舊的 agents
             app_state['ai_agent'] = None
             app_state['dual_agent'] = None
-            app_state['arbitrator_agent'] = None
             
-            # 強制 Python 釋放記憶體
+            # 2. 重載仲裁系統 (如果存在)
+            if app_state.get('arbitrator_agent'):
+                print("\n🔄 重載仲裁系統配置...")
+                try:
+                    app_state['arbitrator_agent'].reload_models()
+                    print("✅ 仲裁系統已重載")
+                except Exception as e:
+                    print(f"⚠️ 仲裁系統重載失敗: {e}")
+                    # 失敗就清空，下次會重新建立
+                    app_state['arbitrator_agent'] = None
+            
+            # 3. 強制 Python 釋放記憶體
             import gc
             gc.collect()
             
-            print("✅ 舊模型已清除")
+            print("\n✅ 舊模型已清除")
             print("✅ 下次 AI 分析時會自動使用新模型")
             print("="*60 + "\n")
             return True
@@ -157,4 +168,56 @@ def register_model_selector_routes(app, app_state):
             traceback.print_exc()
             return jsonify({'error': str(e)}), 500
     
-    print("✅ 模型選擇器 API 路由已註冊 (支持熱更新)")
+    # 新增: 仲裁系統配置 API
+    @app.route('/api/arbitrator/config', methods=['GET'])
+    def get_arbitrator_config():
+        """獲取仲裁系統配置"""
+        try:
+            from core.arbitrator_consensus_agent import ArbitratorConsensusAgent
+            import json
+            from pathlib import Path
+            
+            config_file = Path('arbitrator_config.json')
+            if config_file.exists():
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            else:
+                config = ArbitratorConsensusAgent.DEFAULT_CONFIG
+            
+            return jsonify({
+                'success': True,
+                'config': config
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/api/arbitrator/config', methods=['POST'])
+    def save_arbitrator_config():
+        """保存仲裁系統配置並熱更新"""
+        try:
+            import json
+            from pathlib import Path
+            
+            config = request.json
+            config_file = Path('arbitrator_config.json')
+            
+            # 保存配置
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            # 熱更新
+            reload_success = _reload_agents()
+            
+            return jsonify({
+                'success': True,
+                'message': '✅ 仲裁系統配置已保存並立即生效！',
+                'hot_reload': reload_success
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+    
+    print("✅ 模型選擇器 API 路由已註冊 (支持熱更新 + 仲裁系統)")
