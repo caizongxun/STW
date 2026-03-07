@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>實時 AI 訊號 - 聊天室風格</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #f0f0f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: rgba(30, 40, 60, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header-info {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 60% 40%;
+            gap: 0;
+            min-height: calc(100vh - 120px);
+        }
+
+        .left-panel {
+            border-right: 2px solid rgba(102, 126, 234, 0.3);
+            padding: 30px;
+            overflow-y: auto;
+            background: rgba(20, 30, 50, 0.5);
+        }
+
+        .right-panel {
+            padding: 30px;
+            overflow-y: auto;
+            background: rgba(15, 25, 45, 0.5);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #667eea;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.5);
+            padding-bottom: 10px;
+        }
+
+        .chat-message {
+            margin-bottom: 25px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .model-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-model-a {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+        }
+
+        .badge-model-b {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+        }
+
+        .badge-arbitrator {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+        }
+
+        .badge-executor {
+            background: linear-gradient(135deg, #e67e22, #d35400);
+        }
+
+        .message-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid;
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .bubble-model-a {
+            border-left-color: #3498db;
+        }
+
+        .bubble-model-b {
+            border-left-color: #2ecc71;
+        }
+
+        .bubble-arbitrator {
+            border-left-color: #9b59b6;
+        }
+
+        .bubble-executor {
+            border-left-color: #e67e22;
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .prompt-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .prompt-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .decision-summary {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .decision-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .decision-row:last-child {
+            border-bottom: none;
+        }
+
+        .decision-label {
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .decision-value {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .action-OPEN_LONG {
+            color: #2ecc71;
+        }
+
+        .action-OPEN_SHORT {
+            color: #e74c3c;
+        }
+
+        .action-HOLD {
+            color: #f39c12;
+        }
+
+        .action-CLOSE {
+            color: #3498db;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: rgba(231, 76, 60, 0.1);
+            border-left: 4px solid #e74c3c;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 12px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.5);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(102, 126, 234, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>實時 AI 訊號 - 聊天室風格</h1>
+            <div class="header-info">
+                <span id="current-price">BTCUSDT: --</span>
+                <span id="last-update">最後更新: --</span>
+            </div>
+        </div>
+
+        <div class="main-layout">
+            <div class="left-panel">
+                <h2 class="panel-title">AI 完整回應</h2>
+                <div id="ai-responses">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>載入中...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <h2 class="panel-title">Prompt 與決策資訊</h2>
+                <div id="prompt-info">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>載入中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script>
+        async function loadAIChat() {
+            try {
+                const response = await fetch('/api/ai-chat-data');
+                const data = await response.json();
+
+                if (data.success && data.data) {
+                    renderAIResponses(data.data);
+                    renderPromptInfo(data.data);
+                    updateHeader(data.data);
+                } else {
+                    showError('無法載入數據');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('載入失敗: ' + error.message);
+            }
+        }
+
+        function renderAIResponses(data) {
+            const container = document.getElementById('ai-responses');
+            container.innerHTML = '';
+
+            const responses = data.model_responses || {};
+
+            if (responses.model_a) {
+                container.innerHTML += createMessageBubble(
+                    'Model A',
+                    responses.model_a.model_name || 'Unknown',
+                    responses.model_a.raw_content || responses.model_a.reasoning || '無內容',
+                    'model-a'
+                );
+            }
+
+            if (responses.model_b) {
+                container.innerHTML += createMessageBubble(
+                    'Model B',
+                    responses.model_b.model_name || 'Unknown',
+                    responses.model_b.raw_content || responses.model_b.reasoning || '無內容',
+                    'model-b'
+                );
+            }
+
+            if (responses.arbitrator) {
+                container.innerHTML += createMessageBubble(
+                    'Arbitrator',
+                    responses.arbitrator.model_name || 'Unknown',
+                    responses.arbitrator.raw_content || responses.arbitrator.reasoning || '無內容',
+                    'arbitrator'
+                );
+            }
+
+            if (responses.executor) {
+                container.innerHTML += createMessageBubble(
+                    'Executor',
+                    '執行審核員',
+                    responses.executor.raw_content || responses.executor.reasoning || '無內容',
+                    'executor'
+                );
+            }
+
+            if (Object.keys(responses).length === 0) {
+                container.innerHTML = '<p class="error-message">無 AI 回應數據</p>';
+            }
+        }
+
+        function createMessageBubble(label, modelName, content, type) {
+            return `
+                <div class="chat-message">
+                    <div class="message-header">
+                        <span class="model-badge badge-${type}">${label}</span>
+                        <span class="timestamp">${modelName}</span>
+                    </div>
+                    <div class="message-bubble bubble-${type}">
+                        ${escapeHtml(content)}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPromptInfo(data) {
+            const container = document.getElementById('prompt-info');
+            container.innerHTML = '';
+
+            // 決策摘要
+            const responses = data.model_responses || {};
+            const finalDecision = responses.executor || responses.arbitrator || responses.model_a || {};
+
+            container.innerHTML += `
+                <div class="decision-summary">
+                    <div class="prompt-title">最終決策</div>
+                    <div class="decision-row">
+                        <span class="decision-label">Action</span>
+                        <span class="decision-value action-${finalDecision.final_action || finalDecision.action || 'HOLD'}">
+                            ${finalDecision.final_action || finalDecision.action || 'HOLD'}
+                        </span>
+                    </div>
+                    <div class="decision-row">
+                        <span class="decision-label">Confidence</span>
+                        <span class="decision-value">${finalDecision.adjusted_confidence || finalDecision.confidence || 0}%</span>
+                    </div>
+                    ${finalDecision.execution_decision ? `
+                    <div class="decision-row">
+                        <span class="decision-label">Execution</span>
+                        <span class="decision-value">${finalDecision.execution_decision}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // System Prompt
+            if (data.system_prompt) {
+                container.innerHTML += `
+                    <div class="prompt-section">
+                        <div class="prompt-title">System Prompt</div>
+                        <div class="code-block">
+                            <pre>${escapeHtml(data.system_prompt.substring(0, 500))}...</pre>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // User Prompt
+            if (data.user_prompt) {
+                const userPrompt = data.user_prompt;
+                const preview = userPrompt.length > 1000 ? userPrompt.substring(0, 1000) + '...' : userPrompt;
+                
+                container.innerHTML += `
+                    <div class="prompt-section">
+                        <div class="prompt-title">User Prompt</div>
+                        <div class="code-block">
+                            <pre><code class="language-json">${escapeHtml(preview)}</code></pre>
+                        </div>
+                    </div>
+                `;
+            }
+
+            Prism.highlightAll();
+        }
+
+        function updateHeader(data) {
+            const priceElement = document.getElementById('current-price');
+            const updateElement = document.getElementById('last-update');
+
+            if (data.timestamp) {
+                const date = new Date(data.timestamp);
+                updateElement.textContent = `最後更新: ${date.toLocaleTimeString('zh-TW')}`;
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('ai-responses').innerHTML = `
+                <div class="error-message">${message}</div>
+            `;
+            document.getElementById('prompt-info').innerHTML = `
+                <div class="error-message">${message}</div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 初始載入
+        loadAIChat();
+
+        // 每 30 秒自動更新
+        setInterval(loadAIChat, 30000);
+    </script>
+</body>
+</html>
