@@ -60,6 +60,7 @@ class TradingExecutorAgent:
         self.max_volatility_percent = 5.0
         
         self.execution_history: List[Dict] = []
+        self.last_raw_response = None  # 儲存最後一次 AI 完整回應
         
         # 使用 Gemini Flash 作為審核員 (快速且穩定)
         self.executor_model = self._init_executor_model()
@@ -112,6 +113,9 @@ class TradingExecutorAgent:
         print("\n" + "="*70)
         print("[STAGE 3] 交易執行審核 - 最終把關")
         print("="*70)
+        
+        # 重置 last_raw_response
+        self.last_raw_response = None
         
         action = arbitrator_decision.get('action', 'HOLD')
         confidence = arbitrator_decision.get('confidence', 0)
@@ -291,6 +295,7 @@ class TradingExecutorAgent:
             
             if result['success']:
                 raw_content = result['content']
+                self.last_raw_response = raw_content  # 儲存完整回應
                 
                 # 嘗試解析
                 review = self._parse_review(raw_content)
