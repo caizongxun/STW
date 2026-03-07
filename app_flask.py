@@ -3,7 +3,7 @@ Flask 主伺服器 - 取代 Streamlit
 支持即時更新、多 Tab 同時操作、無閃爍
 新增: 兩階段仲裁決策系統
 修正: 啟動時自動讀取 config.json 並設定環境變數
-新增: 模型選擇器功能
+新增: 模型選擇器功能 (支持熱更新)
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -850,10 +850,10 @@ if __name__ == '__main__':
     load_config()
     load_cases()
     
-    # 註冊模型選擇器 API 路由
+    # 註冊模型選擇器 API 路由 (傳入 app_state 支持熱更新)
     if HAS_MODEL_SELECTOR:
-        register_model_selector_routes(app)
-        print("✅ 模型選擇器功能已啟用")
+        register_model_selector_routes(app, app_state)
+        print("✅ 模型選擇器功能已啟用 (支持熱更新)")
     
     print("")
     print("=" * 60)
@@ -873,7 +873,7 @@ if __name__ == '__main__':
     print("    - Decision history tracking (avoid duplicate)")
     
     if HAS_MODEL_SELECTOR:
-        print("    - Model selector (choose Model A/B/Arbitrator)")
+        print("    - Model selector with hot-reload (熱更新)")
     
     if HAS_ARBITRATOR:
         print("    - Two-stage Arbitrator Consensus")
@@ -913,7 +913,7 @@ if __name__ == '__main__':
         print("  Dual Model: Disabled")
     
     if HAS_MODEL_SELECTOR:
-        print("  Model Selector: Enabled")
+        print("  Model Selector: Enabled (Hot-Reload)")
     else:
         print("  Model Selector: Disabled")
     
