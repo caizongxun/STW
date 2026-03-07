@@ -1,0 +1,39 @@
+{
+  "model_a": {
+    "primary": "Llama_70B_A1",
+    "backup": [
+      "Gemini_Flash_A2",
+      "Qwen3_32B_A3"
+    ]
+  },
+  "model_b": {
+    "primary": "Gemini_Flash_B1",
+    "backup": [
+      "Llama_70B_B2",
+      "Qwen3_32B_B3"
+    ]
+  },
+  "arbitrator": {
+    "primary": "Gemini_25_Pro_Exp",
+    "backup": [
+      "Llama_70B",
+      "Gemini_Flash"
+    ]
+  },
+  "executor": {
+    "primary": "Llama_70B",
+    "backup": [
+      "Gemini_Flash",
+      "Qwen3_32B"
+    ]
+  },
+  "thresholds": {
+    "consensus_agreement": 0.7,
+    "high_confidence": 0.8,
+    "min_confidence": 0.6
+  },
+  "retry": {
+    "max_retries": 2,
+    "delay_seconds": 3
+  }
+}
