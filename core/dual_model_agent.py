@@ -1,8 +1,9 @@
 """
 雙模型決策系統
 使用兩個**不同的優質模型**互相驗證，提高決策準確性
-- Model A: DeepSeek-R1 (推理能力強)
-- Model B: GPT-4o / Gemini 2.0 / Claude (穩定性好)
+- Model A: Llama 3.3 70B / Gemini 2.0 (速度快、推理好)
+- Model B: GPT-4o-mini / Qwen3 32B (穩定性好)
+更新為 2026 年可用模型
 """
 import json
 import time
@@ -108,36 +109,44 @@ class DualModelDecisionAgent:
     """
     
     def __init__(self):
-        self.model_a = None  # DeepSeek-R1
-        self.model_b = None  # GPT-4o / Gemini / Claude
+        self.model_a = None  # Llama 3.3 70B / Gemini 2.0
+        self.model_b = None  # GPT-4o-mini / Qwen3 32B
         self.decision_history: List[Dict] = []
         
         self._init_models()
     
     def _init_models(self):
-        """初始化兩個不同模型"""
+        """初始化兩個不同模型 (2026 可用)"""
         
-        # Model A: DeepSeek-R1 (優先使用 Groq)
+        # Model A: 選擇速度快且推理好的模型
         if os.getenv('GROQ_API_KEY'):
             self.model_a = OpenAICompatibleModel(
-                name='Groq_DeepSeek_R1',
+                name='Groq_Llama_3_3_70B',
                 api_key=os.getenv('GROQ_API_KEY'),
                 base_url='https://api.groq.com/openai/v1',
-                model='deepseek-r1-distill-llama-70b'
+                model='llama-3.3-70b-versatile'
             )
-            print("✅ Model A: Groq DeepSeek-R1 Distill Llama 70B")
+            print("✅ Model A: Groq Llama 3.3 70B Versatile")
+        elif os.getenv('GOOGLE_API_KEY'):
+            self.model_a = GeminiModel(
+                name='Google_Gemini_2_Flash',
+                api_key=os.getenv('GOOGLE_API_KEY'),
+                base_url='',
+                model='gemini-2.0-flash'
+            )
+            print("✅ Model A: Google Gemini 2.0 Flash")
         elif os.getenv('OPENROUTER_API_KEY'):
             self.model_a = OpenAICompatibleModel(
-                name='OpenRouter_DeepSeek_R1',
+                name='OpenRouter_Gemini_2_Flash',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-r1:free'
+                model='google/gemini-2.0-flash-exp:free'
             )
-            print("✅ Model A: OpenRouter DeepSeek-R1")
+            print("✅ Model A: OpenRouter Gemini 2.0 Flash")
         else:
-            print("⚠️ Model A 未配置 (DeepSeek-R1)")
+            print("⚠️ Model A 未配置")
         
-        # Model B: 選擇優質備用模型
+        # Model B: 選擇穩定的備用模型
         if os.getenv('GITHUB_TOKEN'):
             self.model_b = OpenAICompatibleModel(
                 name='GitHub_GPT4o_mini',
@@ -146,26 +155,24 @@ class DualModelDecisionAgent:
                 model='gpt-4o-mini'
             )
             print("✅ Model B: GitHub GPT-4o-mini")
-        elif os.getenv('GOOGLE_API_KEY'):
-            self.model_b = GeminiModel(
-                name='Google_Gemini_Flash',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='',
-                model='gemini-2.0-flash-exp'
+        elif os.getenv('OPENROUTER_API_KEY') and self.model_a and not self.model_a.name.startswith('OpenRouter'):
+            # 如果 Model A 不是 OpenRouter，用 OpenRouter 的其他模型
+            self.model_b = OpenAICompatibleModel(
+                name='OpenRouter_Qwen3_32B',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='qwen/qwen3-32b:free'
             )
-            print("✅ Model B: Google Gemini 2.0 Flash")
-        elif os.getenv('OPENROUTER_API_KEY'):
-            # 如果 Model A 用了 Groq，這裡用 OpenRouter 的其他模型
-            if self.model_a and self.model_a.name.startswith('Groq'):
-                self.model_b = OpenAICompatibleModel(
-                    name='OpenRouter_Claude',
-                    api_key=os.getenv('OPENROUTER_API_KEY'),
-                    base_url='https://openrouter.ai/api/v1',
-                    model='anthropic/claude-3.5-sonnet:beta'
-                )
-                print("✅ Model B: OpenRouter Claude 3.5 Sonnet")
-            else:
-                print("⚠️ Model B 與 Model A 重複")
+            print("✅ Model B: OpenRouter Qwen3 32B")
+        elif os.getenv('GROQ_API_KEY') and self.model_a and self.model_a.model != 'mixtral-8x7b-32768':
+            # 如果 Model A 用了 Groq Llama，這裡用 Groq Mixtral
+            self.model_b = OpenAICompatibleModel(
+                name='Groq_Mixtral_8x7B',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='mixtral-8x7b-32768'
+            )
+            print("✅ Model B: Groq Mixtral 8x7B")
         else:
             print("⚠️ Model B 未配置")
     
