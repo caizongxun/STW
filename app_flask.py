@@ -7,6 +7,7 @@ Flask 主伺服器 - 取代 Streamlit
 新增: 分析詳細功能 (顯示prompt和模型回應)
 新增: 多時間框架分析 (15m+1h+4h) + 逆勢操作
 新增: 強健 JSON 解析器 (自動修復格式錯誤)
+新增: AI 聊天室風格介面 (完整顯示所有 AI 回應)
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -59,6 +60,14 @@ try:
 except ImportError as e:
     HAS_ANALYSIS_DETAIL = False
     print(f"警告: 分析詳細功能不可用 - {e}")
+
+# 導入 AI 聊天室 API 路由
+try:
+    from api_routes_ai_chat import register_ai_chat_routes
+    HAS_AI_CHAT = True
+except ImportError as e:
+    HAS_AI_CHAT = False
+    print(f"警告: AI 聊天室功能不可用 - {e}")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -983,6 +992,11 @@ if __name__ == '__main__':
         register_analysis_detail_routes(app, app_state)
         print("[OK] 分析詳細功能已啟用")
     
+    # 註冊 AI 聊天室 API 路由
+    if HAS_AI_CHAT:
+        register_ai_chat_routes(app, app_state)
+        print("[OK] AI 聊天室功能已啟用")
+    
     print("")
     print("=" * 60)
     print("  Flask Server Starting - STW AI Trading System")
@@ -1010,6 +1024,9 @@ if __name__ == '__main__':
     
     if HAS_ANALYSIS_DETAIL:
         print("    - Analysis detail view (prompt + model responses)")
+    
+    if HAS_AI_CHAT:
+        print("    - AI Chat Room (full AI responses display)")
     
     if HAS_ARBITRATOR:
         print("    - Three-stage Arbitrator Consensus (A/B -> Arbitrator -> Executor)")
@@ -1062,6 +1079,11 @@ if __name__ == '__main__':
         print("  Analysis Detail: Enabled")
     else:
         print("  Analysis Detail: Disabled")
+    
+    if HAS_AI_CHAT:
+        print("  AI Chat Room: Enabled")
+    else:
+        print("  AI Chat Room: Disabled")
     
     print("  JSON Parser: Robust (auto-fix Markdown/quotes/format)")
     print("=" * 60)
