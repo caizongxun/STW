@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>[V13] DeepSeek-R1 AI 交易決策系統</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/model_selector.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
 <body>
@@ -464,11 +465,14 @@
                     <div class="info-banner">
                         <ul>
                             <li>配置 AI 模型參數</li>
-                            <li>設定 API 金鑰（加密存儲）</li>
+                            <li>設定 API 金鑰（加密存储）</li>
                             <li>本地持久化，關閉後配置仍保留</li>
                             <li>支持匯出/匯入配置</li>
                         </ul>
                     </div>
+                    
+                    <!-- 模型選擇器 -->
+                    <div id="model-selector-container"></div>
                     
                     <h4 style="margin-top: 24px;">🧠 兩階段仲裁決策 (NEW!)</h4>
                     <div class="info-banner" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
@@ -538,7 +542,7 @@
                     
                     <h4 style="margin-top: 24px;">免費 API 設定</h4>
                     <div class="info-banner" style="background: #e3f2fd; border-left: 4px solid #2196F3;">
-                        <p>所有 API Keys 加密存儲，關閉系統後仍保留。首次輸入後會顯示掩碼，無需每次重輸。</p>
+                        <p>所有 API Keys 加密存储，關閉系統後仍保留。首次輸入後會顯示掩碼，無需每次重輸。</p>
                     </div>
                     
                     <div class="grid-2">
@@ -648,5 +652,8 @@
     
     <!-- 兩階段仲裁 UI -->
     <script src="{{ url_for('static', filename='js/arbitrator_ui.js') }}"></script>
+    
+    <!-- 模型選擇器 -->
+    <script src="{{ url_for('static', filename='js/model_selector.js') }}"></script>
 </body>
 </html>
