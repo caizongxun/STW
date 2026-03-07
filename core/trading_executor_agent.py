@@ -38,6 +38,14 @@ from typing import Dict, Optional, List
 import requests
 import time
 
+# 導入強健 JSON 解析器
+try:
+    from core.json_parser_robust import parse_executor_review
+    HAS_ROBUST_PARSER = True
+except ImportError:
+    HAS_ROBUST_PARSER = False
+    print("[WARNING] 強健 JSON 解析器不可用，使用基礎解析")
+
 
 class TradingExecutorAgent:
     """
@@ -55,6 +63,9 @@ class TradingExecutorAgent:
         
         # 使用 Gemini Flash 作為審核員 (快速且穩定)
         self.executor_model = self._init_executor_model()
+        
+        if HAS_ROBUST_PARSER:
+            print("[OK] 執行審核員使用強健 JSON 解析器")
     
     def _init_executor_model(self):
         """初始化審核員模型"""
@@ -361,21 +372,27 @@ class TradingExecutorAgent:
             return {'success': False, 'error': str(e)}
     
     def _parse_review(self, content: str) -> Dict:
-        try:
-            if '{' in content and '}' in content:
-                start = content.index('{')
-                end = content.rindex('}') + 1
-                return json.loads(content[start:end])
-        except:
-            pass
-        
-        return {
-            'execution_decision': 'REJECT',
-            'confidence_adjustment': 0,
-            'position_size_ratio': 1.0,
-            'reasoning': '解析失敗，預設拒絕',
-            'risk_factors': ['解析錯誤']
-        }
+        """解析審核員回應"""
+        if HAS_ROBUST_PARSER:
+            # 使用強健解析器
+            return parse_executor_review(content)
+        else:
+            # 備用: 基礎解析
+            try:
+                if '{' in content and '}' in content:
+                    start = content.index('{')
+                    end = content.rindex('}') + 1
+                    return json.loads(content[start:end])
+            except:
+                pass
+            
+            return {
+                'execution_decision': 'REJECT',
+                'confidence_adjustment': 0,
+                'position_size_ratio': 1.0,
+                'reasoning': '解析失敗，預設拒絕',
+                'risk_factors': ['解析錯誤']
+            }
     
     def _approve_decision(self, decision: Dict, reason: str, adjusted_confidence: Optional[int] = None) -> Dict:
         return {
