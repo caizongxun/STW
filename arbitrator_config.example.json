@@ -1,0 +1,112 @@
+{
+  "_comment": "仲裁系統模型配置範例 - 複製成 arbitrator_config.json 使用",
+  "_instructions": [
+    "1. 將此檔案複製為 arbitrator_config.json",
+    "2. 修改下面的模型優先順序",
+    "3. 在 Web UI 保存配置後會自動熱更新，無需重啟伺服器"
+  ],
+  
+  "model_a_priority": [
+    {
+      "provider": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Llama_70B",
+      "_comment": "主力模型 A - 第一優先"
+    },
+    {
+      "provider": "google",
+      "model": "gemini-2.5-flash",
+      "name": "Gemini_Flash",
+      "_comment": "備用 1 - Llama 失敗時使用"
+    },
+    {
+      "provider": "groq",
+      "model": "mixtral-8x7b-32768",
+      "name": "Mixtral_8x7B",
+      "_comment": "備用 2 - 最後手段"
+    }
+  ],
+  
+  "model_b_priority": [
+    {
+      "provider": "google",
+      "model": "gemini-2.5-flash",
+      "name": "Gemini_Flash",
+      "_comment": "主力模型 B - 第一優先"
+    },
+    {
+      "provider": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Llama_70B",
+      "_comment": "備用 1 - Gemini 失敗時使用"
+    },
+    {
+      "provider": "groq",
+      "model": "mixtral-8x7b-32768",
+      "name": "Mixtral_8x7B",
+      "_comment": "備用 2 - 最後手段"
+    }
+  ],
+  
+  "arbitrator_priority": [
+    {
+      "provider": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "name": "Llama_70B",
+      "_comment": "仲裁者 1 - 速度快、精確度高"
+    },
+    {
+      "provider": "google",
+      "model": "gemini-2.5-flash",
+      "name": "Gemini_Flash",
+      "_comment": "仲裁者 2 - 穩定、免費"
+    },
+    {
+      "provider": "groq",
+      "model": "mixtral-8x7b-32768",
+      "name": "Mixtral_8x7B",
+      "_comment": "仲裁者 3 - 備用選項"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-r1:free",
+      "name": "DeepSeek_R1",
+      "_comment": "仲裁者 4 - 最後備用，推理能力強"
+    }
+  ],
+  
+  "_available_providers": {
+    "groq": {
+      "description": "Groq - 速度極快，每天 14,400 次免費請求",
+      "models": [
+        "llama-3.3-70b-versatile",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+      ]
+    },
+    "google": {
+      "description": "Google AI - 穩定可靠，每分鐘 15 次請求",
+      "models": [
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+      ]
+    },
+    "openrouter": {
+      "description": "OpenRouter - 多模型平台，部分免費",
+      "models": [
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "qwen/qwen-2.5-72b-instruct:free"
+      ]
+    }
+  },
+  
+  "_tips": [
+    "💡 provider 可選: groq, google, openrouter",
+    "💡 每個 model 都需要對應的 API Key (設定在 config.json)",
+    "💡 優先順序由上至下，上面的模型失敗會自動嘗試下面的",
+    "💡 修改配置後，在 Web UI 保存即可熱更新，無需重啟"
+  ]
+}
