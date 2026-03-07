@@ -3,7 +3,7 @@
 
 階段1: Model A + Model B 快速分析
 階段2: 仲裁者決策 (意見分歧時)
-階段3: 交易執行審核 (最終把關) ← 新增!
+階段3: 交易執行審核 (最終把關)
 
 主力配置（方案 B）：
   - Model A: Llama 3.3 70B (Groq) - 第一選擇
@@ -20,7 +20,7 @@
   - 配置檔支持: arbitrator_config.json
   - 熱更新: 修改配置後自動重新載入模型
   - 自定義優先序: 在 Web UI 調整模型順序
-  - 詳細記錄: 記錄每次 prompt 和模型回應
+  - 詳細記錄: 記錄每次 prompt 和模型完整回應 (raw_content)
   - 多時間框架: 15m (主) + 1h + 4h 看大趨勢
   - 逆勢操作: 允許在信心度高時做 1h 內逆勢
   - 交易審核: 基於信心度和市場狀況最終核准
@@ -452,7 +452,7 @@ class ArbitratorConsensusAgent:
                 decision['model_name'] = primary_model.name
                 print(f"[OK] [{primary_model.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
                 print(f"     理由: {decision['reasoning'][:80]}...")
-                return decision
+                return decision, result['content']  # 返回完整內容
             else:
                 error_msg = result.get('error', 'Unknown')[:150]
                 print(f"[FAIL] [{primary_model.name}] 失敗: {error_msg}")
@@ -471,12 +471,12 @@ class ArbitratorConsensusAgent:
                 decision['model_name'] = backup.name
                 print(f"[OK] [{backup.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
                 print(f"     理由: {decision['reasoning'][:80]}...")
-                return decision
+                return decision, result['content']  # 返回完整內容
             else:
                 print(f"[FAIL] [{backup.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
         
         print(f"\n[FAIL] {label} 所有模型都失敗")
-        return None
+        return None, None
     
     def analyze_with_arbitration(
         self,
@@ -523,7 +523,7 @@ class ArbitratorConsensusAgent:
             'model_responses': {}
         }
         
-        decision_a = self._try_model_with_backups(
+        decision_a, raw_content_a = self._try_model_with_backups(
             self.primary_model_a,
             self.backup_models_a,
             system_prompt,
@@ -534,6 +534,7 @@ class ArbitratorConsensusAgent:
         if decision_a:
             self.last_analysis_detail['model_responses']['model_a'] = {
                 'model_name': decision_a.get('model_name', 'Unknown'),
+                'raw_content': raw_content_a,  # 完整原始回應
                 'action': decision_a['action'],
                 'confidence': decision_a['confidence'],
                 'reasoning': decision_a['reasoning']
@@ -541,7 +542,7 @@ class ArbitratorConsensusAgent:
         
         time.sleep(1)
         
-        decision_b = self._try_model_with_backups(
+        decision_b, raw_content_b = self._try_model_with_backups(
             self.primary_model_b,
             self.backup_models_b,
             system_prompt,
@@ -552,6 +553,7 @@ class ArbitratorConsensusAgent:
         if decision_b:
             self.last_analysis_detail['model_responses']['model_b'] = {
                 'model_name': decision_b.get('model_name', 'Unknown'),
+                'raw_content': raw_content_b,  # 完整原始回應
                 'action': decision_b['action'],
                 'confidence': decision_b['confidence'],
                 'reasoning': decision_b['reasoning']
@@ -603,12 +605,22 @@ class ArbitratorConsensusAgent:
                 multi_timeframe_data=multi_timeframe_data
             )
             
-            self.last_analysis_detail['model_responses']['executor'] = {
-                'execution_decision': execution_review['execution_decision'],
-                'final_action': execution_review['final_action'],
-                'adjusted_confidence': execution_review['adjusted_confidence'],
-                'reasoning': execution_review['executor_reasoning']
-            }
+            # 儲存執行審核員的回應
+            if hasattr(self.trading_executor, 'last_raw_response'):
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'raw_content': self.trading_executor.last_raw_response,
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                }
+            else:
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                }
             
             # 使用審核後的決策
             final_decision = execution_review
@@ -698,6 +710,7 @@ class ArbitratorConsensusAgent:
                 
                 self.last_analysis_detail['model_responses']['arbitrator'] = {
                     'model_name': arbitrator.name,
+                    'raw_content': result['content'],  # 完整原始回應
                     'action': final_decision['action'],
                     'confidence': final_decision['confidence'],
                     'reasoning': final_decision['reasoning']
@@ -735,15 +748,15 @@ class ArbitratorConsensusAgent:
 1. 分析當前市場數據、歷史 K 棒走勢、技術指標
 2. 參考最近決策結果，避免重複操作
 3. 學習成功案例的模式
-4. **結合多時間框架** (15m + 1h + 4h) 看清大趨勢
+4. 結合多時間框架 (15m + 1h + 4h) 看清大趨勢
 5. 給出明確的交易建議
 
 重要原則:
 - 避免重複下單、矛盾操作、頻繁交易
 - 不要在持有多單時再次 OPEN_LONG
 - 不要在沒有持倉時 CLOSE
-- **主時間框架為 15分鐘**，但要參考 1h 和 4h 趨勢
-- **允許逆勢操作**：在信心度高 (>75%) 且技術指標強勁時，可以在 **1小時內** 做 15分鐘的逆勢操作
+- 主時間框架為 15分鐘，但要參考 1h 和 4h 趨勢
+- 允許逆勢操作：在信心度高 (>75%) 且技術指標強勁時，可以在 1小時內 做 15分鐘的逆勢操作
 
 輸出 JSON 格式:
 {"action": "OPEN_LONG|OPEN_SHORT|CLOSE|HOLD", "confidence": 0-100, "leverage": 1-5, "position_size_usdt": 數字, "entry_price": 數字, "stop_loss": 數字, "take_profit": 數字, "reasoning": "詳細理由", "risk_assessment": "LOW|MEDIUM|HIGH", "is_counter_trend": true|false}"""
