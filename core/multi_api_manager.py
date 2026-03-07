@@ -101,64 +101,7 @@ class MultiAPIManager:
         2026 年 3 月正確的模型 ID
         """
         
-        # 1. OpenRouter - 使用正確的模型 ID
-        if os.getenv('OPENROUTER_API_KEY'):
-            # Llama 3.3 70B - 最佳綜合性能
-            self.providers.append(APIProvider(
-                name='OpenRouter_Llama_3_3_70B',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='meta-llama/llama-3.3-70b-instruct:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=5  # 最高優先級
-            ))
-            
-            # Llama 3.1 405B - 最強大模型
-            self.providers.append(APIProvider(
-                name='OpenRouter_Llama_3_1_405B',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='meta-llama/llama-3.1-405b-instruct:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=5
-            ))
-            
-            # Gemini 2.0 Flash - 1M context
-            self.providers.append(APIProvider(
-                name='OpenRouter_Gemini_2_Flash',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='google/gemini-2.0-flash-thinking-exp:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=5
-            ))
-            
-            # Mistral Small 3.1
-            self.providers.append(APIProvider(
-                name='OpenRouter_Mistral_Small',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='mistralai/mistral-small-3.1-2502:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=4
-            ))
-            
-            # Qwen3 Coder 480B - 編碼專用
-            self.providers.append(APIProvider(
-                name='OpenRouter_Qwen3_Coder',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='qwen/qwen3-coder-480b:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=4
-            ))
-        
-        # 2. Groq - 最快的免費 API
+        # 1. Groq - 最快且最穩定的免費 API (優先使用)
         if os.getenv('GROQ_API_KEY'):
             self.providers.append(APIProvider(
                 name='Groq_Llama_3_3_70B',
@@ -167,7 +110,7 @@ class MultiAPIManager:
                 model='llama-3.3-70b-versatile',
                 rpm_limit=30,
                 daily_limit=14400,
-                priority=5  # 最高優先級（速度快）
+                priority=5  # 最高優先級
             ))
             
             self.providers.append(APIProvider(
@@ -180,7 +123,7 @@ class MultiAPIManager:
                 priority=4
             ))
         
-        # 3. Google Gemini
+        # 2. Google Gemini - 官方 API，非常穩定
         if os.getenv('GOOGLE_API_KEY'):
             self.providers.append(APIProvider(
                 name='Google_Gemini_2_Flash',
@@ -189,7 +132,53 @@ class MultiAPIManager:
                 model='gemini-2.0-flash',
                 rpm_limit=15,
                 daily_limit=1500,
-                priority=4
+                priority=5  # 提高優先級
+            ))
+        
+        # 3. OpenRouter - 作為備用 (免費模型經常變動)
+        if os.getenv('OPENROUTER_API_KEY'):
+            # Llama 3.3 70B
+            self.providers.append(APIProvider(
+                name='OpenRouter_Llama_3_3_70B',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='meta-llama/llama-3.3-70b-instruct:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=3  # 作為備用
+            ))
+            
+            # Gemini 2.0 Flash Exp - 修正模型 ID
+            self.providers.append(APIProvider(
+                name='OpenRouter_Gemini_2_Flash',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='google/gemini-2.0-flash-exp:free',  # ✅ 修正
+                rpm_limit=20,
+                daily_limit=200,
+                priority=3
+            ))
+            
+            # Mistral Small 3.1 - 修正模型 ID
+            self.providers.append(APIProvider(
+                name='OpenRouter_Mistral_Small',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='mistralai/mistral-small-3.1:free',  # ✅ 修正
+                rpm_limit=20,
+                daily_limit=200,
+                priority=3
+            ))
+            
+            # Qwen 2.5 Coder - 修正模型 ID
+            self.providers.append(APIProvider(
+                name='OpenRouter_Qwen_Coder',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='qwen/qwen-2.5-coder-32b-instruct:free',  # ✅ 修正
+                rpm_limit=20,
+                daily_limit=200,
+                priority=3
             ))
         
         # 4. GitHub Models
@@ -213,7 +202,7 @@ class MultiAPIManager:
                 model='deepseek-chat',
                 rpm_limit=60,
                 daily_limit=50000,
-                priority=5
+                priority=4
             ))
         
         # 6. Cloudflare Workers AI
@@ -232,7 +221,8 @@ class MultiAPIManager:
         
         print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商 (2026 年 3 月正確模型)")
         for p in self.providers:
-            print(f"  - {p.name}: {p.model} (優先級 {p.priority})")
+            status = "🚀" if p.priority == 5 else "✅"
+            print(f"  {status} {p.name}: {p.model} (優先級 {p.priority})")
     
     def get_available_provider(self, purpose: str = 'general') -> Optional[APIProvider]:
         """
@@ -244,8 +234,8 @@ class MultiAPIManager:
         # 根據用途選擇優先級
         priority_map = {
             'fast': ['Groq_Llama_3_3_70B', 'Cloudflare_Llama_3_1'],
-            'reasoning': ['OpenRouter_Llama_3_1_405B', 'OpenRouter_Gemini_2_Flash', 'Google_Gemini_2_Flash'],
-            'position': ['OpenRouter_Llama_3_3_70B', 'Groq_Llama_3_3_70B'],
+            'reasoning': ['Google_Gemini_2_Flash', 'Groq_Llama_3_3_70B'],
+            'position': ['Groq_Llama_3_3_70B', 'Google_Gemini_2_Flash'],
             'general': None
         }
         
