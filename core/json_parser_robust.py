@@ -12,6 +12,7 @@
 8. True/False vs true/false
 9. None vs null
 10. NaN, Infinity 等非法值
+11. AI 輸出被截斷 (部分輸出)
 """
 import json
 import re
@@ -246,6 +247,7 @@ def parse_trading_decision(content: str) -> Dict:
 def parse_executor_review(content: str) -> Dict:
     """
     解析執行審核員的回應
+    特別處理 AI 輸出被截斷的情況
     """
     default = {
         'execution_decision': 'REJECT',
@@ -255,8 +257,14 @@ def parse_executor_review(content: str) -> Dict:
         'risk_factors': ['解析錯誤']
     }
     
-    result = RobustJSONParser.parse(content, default)
+    # 策略 1: 標準 JSON 解析
+    result = RobustJSONParser.parse(content, None)
     
+    if result is None or 'execution_decision' not in result:
+        # 策略 2: 智能推斷 (部分輸出)
+        result = infer_executor_decision_from_partial(content)
+    
+    # 補全預設值
     for key, value in default.items():
         result.setdefault(key, value)
     
@@ -272,5 +280,60 @@ def parse_executor_review(content: str) -> Dict:
         result['execution_decision'] = result['execution_decision'].upper()
         if result['execution_decision'] not in ['EXECUTE', 'REJECT', 'REDUCE_SIZE']:
             result['execution_decision'] = 'REJECT'
+    
+    return result
+
+
+def infer_executor_decision_from_partial(content: str) -> Dict:
+    """
+    從部分輸出中推斷 Executor 的決策
+    當 AI 輸出被截斷時使用
+    """
+    content_lower = content.lower()
+    result = {}
+    
+    # 1. 提取信心度
+    conf_match = re.search(r'信心度[:：]?\s*(\d+)%', content)
+    if conf_match:
+        confidence = int(conf_match.group(1))
+    else:
+        confidence = None
+    
+    # 2. 檢查關鍵詞來推斷決策
+    positive_keywords = ['符合執行', '可以執行', '建議執行', '通過審核', '同意執行']
+    negative_keywords = ['不建議執行', '拒絕執行', '不符合', '風險過大', '不通過']
+    caution_keywords = ['謹慎執行', '減少倉位', '降低杆杆', '小倉位']
+    
+    has_positive = any(kw in content for kw in positive_keywords)
+    has_negative = any(kw in content for kw in negative_keywords)
+    has_caution = any(kw in content for kw in caution_keywords)
+    
+    # 3. 根據關鍵詞和信心度決定
+    if has_negative:
+        result['execution_decision'] = 'REJECT'
+        result['reasoning'] = '審核員拒絕執行 (從部分輸出推斷)'
+    elif has_caution:
+        result['execution_decision'] = 'REDUCE_SIZE'
+        result['position_size_ratio'] = 0.5
+        result['reasoning'] = '審核員建議減少倉位 (從部分輸出推斷)'
+    elif has_positive and confidence and confidence >= 60:
+        result['execution_decision'] = 'EXECUTE'
+        result['reasoning'] = f'審核員同意執行，信心度 {confidence}% (從部分輸出推斷)'
+    elif confidence:
+        # 有信心度但沒有明確關鍵詞
+        if confidence >= 70:
+            result['execution_decision'] = 'EXECUTE'
+            result['reasoning'] = f'信心度達標 {confidence}% (從部分輸出推斷)'
+        elif confidence >= 50:
+            result['execution_decision'] = 'REDUCE_SIZE'
+            result['position_size_ratio'] = 0.5
+            result['reasoning'] = f'信心度中等 {confidence}%，減少倉位 (從部分輸出推斷)'
+        else:
+            result['execution_decision'] = 'REJECT'
+            result['reasoning'] = f'信心度不足 {confidence}% (從部分輸出推斷)'
+    else:
+        # 無法判斷，預設拒絕
+        result['execution_decision'] = 'REJECT'
+        result['reasoning'] = 'AI 輸出不完整，無法判斷，預設拒絕'
     
     return result
