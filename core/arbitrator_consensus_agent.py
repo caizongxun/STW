@@ -13,6 +13,10 @@
 1. 增加交易機會（不會直接 HOLD）
 2. 節省最強模型額度（只在需要時調用）
 3. 仲裁者有完整資訊（看到兩個分析）
+
+新增：
+- 歷史 K 棒分析（判斷趋勢反轉、K 線型態）
+- 成功案例參考（從過去學習）
 """
 import json
 import time
@@ -47,7 +51,7 @@ class OpenAICompatibleModel(ModelInterface):
                 {'role': 'user', 'content': user_prompt}
             ],
             'temperature': 0.2,
-            'max_tokens': 3000
+            'max_tokens': 4000
         }
         
         try:
@@ -56,7 +60,7 @@ class OpenAICompatibleModel(ModelInterface):
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=45
+                timeout=60
             )
             elapsed = time.time() - start_time
             
@@ -93,7 +97,7 @@ class GeminiModel(ModelInterface):
                 full_prompt,
                 generation_config=genai.GenerationConfig(
                     temperature=0.2,
-                    max_output_tokens=3000
+                    max_output_tokens=4000
                 )
             )
             elapsed = time.time() - start_time
@@ -180,9 +184,11 @@ class ArbitratorConsensusAgent:
         self,
         market_data: Dict,
         account_info: Dict,
-        position_info: Optional[Dict] = None
+        position_info: Optional[Dict] = None,
+        historical_candles: Optional[List[Dict]] = None,
+        successful_cases: Optional[List[Dict]] = None
     ) -> Dict:
-        """兩階段仲裁分析"""
+        """兩階段仲裁分析（增強版）"""
         
         if not all([self.fast_model_a, self.fast_model_b]):
             print("⚠️ 快速模型未配置，降級為單模型")
@@ -195,7 +201,8 @@ class ArbitratorConsensusAgent:
         print("━"*70)
         
         system_prompt, user_prompt = self._prepare_prompts(
-            market_data, account_info, position_info
+            market_data, account_info, position_info,
+            historical_candles, successful_cases
         )
         
         # 階段 1: 兩個快速模型同時分析
@@ -247,7 +254,8 @@ class ArbitratorConsensusAgent:
                 self.arbitration_count += 1
                 final_decision = self._arbitrate(
                     market_data, account_info, position_info,
-                    decision_a, decision_b
+                    decision_a, decision_b,
+                    historical_candles, successful_cases
                 )
                 final_decision['arbitration'] = True
         
@@ -291,7 +299,9 @@ class ArbitratorConsensusAgent:
         account_info: Dict,
         position_info: Optional[Dict],
         decision_a: Dict,
-        decision_b: Dict
+        decision_b: Dict,
+        historical_candles: Optional[List[Dict]],
+        successful_cases: Optional[List[Dict]]
     ) -> Dict:
         """仲裁者模型決策"""
         
@@ -311,7 +321,8 @@ class ArbitratorConsensusAgent:
 1. 仔細閱讀兩個模型的分析
 2. 評估各自的優勣勢
 3. 結合當前市場數據
-4. 給出你的最終決策
+4. 參考歷史 K 棒和成功案例
+5. 給出你的最終決策
 
 輸出 JSON 格式：
 {
@@ -330,36 +341,50 @@ class ArbitratorConsensusAgent:
 
 重要: 你可以選擇 A、B 或給出完全不同的第三個答案。"""
         
-        arbitrator_user_prompt = f"""市場數據:
-{json.dumps(market_data, indent=2, ensure_ascii=False)}
-
-賬戶資訊:
-{json.dumps(account_info, indent=2, ensure_ascii=False)}
-
-持倉資訊:
-{json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'}
-
----
-
-模型 A (Llama 70B) 的分析:
-決策: {decision_a['action']}
-信心度: {decision_a['confidence']}%
-理由: {decision_a['reasoning']}
-完整分析:
-{decision_a.get('raw_reasoning', '')[:1000]}
-
----
-
-模型 B (Gemini 2.0) 的分析:
-決策: {decision_b['action']}
-信心度: {decision_b['confidence']}%
-理由: {decision_b['reasoning']}
-完整分析:
-{decision_b.get('raw_reasoning', '')[:1000]}
-
----
-
-現在請你作為仲裁者，給出你的最終判斷。"""
+        # 準備仲裁者的完整資訊
+        user_prompt_parts = [
+            "市場數據:",
+            json.dumps(market_data, indent=2, ensure_ascii=False),
+            "\n賬戶資訊:",
+            json.dumps(account_info, indent=2, ensure_ascii=False),
+            "\n持倉資訊:",
+            json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
+        ]
+        
+        # 增加歷史 K 棒資訊
+        if historical_candles and len(historical_candles) > 0:
+            user_prompt_parts.extend([
+                "\n---\n歷史 K 棒 (最近 20 根):",
+                json.dumps(historical_candles[-20:], indent=2, ensure_ascii=False)
+            ])
+        
+        # 增加成功案例
+        if successful_cases and len(successful_cases) > 0:
+            user_prompt_parts.extend([
+                "\n---\n過去成功案例（供參考）:",
+                json.dumps(successful_cases[:5], indent=2, ensure_ascii=False)
+            ])
+        
+        user_prompt_parts.extend([
+            "\n---\n",
+            f"\n模型 A (Llama 70B) 的分析:",
+            f"決策: {decision_a['action']}",
+            f"信心度: {decision_a['confidence']}%",
+            f"理由: {decision_a['reasoning']}",
+            f"完整分析:",
+            decision_a.get('raw_reasoning', '')[:1500],
+            "\n---\n",
+            f"\n模型 B (Gemini 2.0) 的分析:",
+            f"決策: {decision_b['action']}",
+            f"信心度: {decision_b['confidence']}%",
+            f"理由: {decision_b['reasoning']}",
+            f"完整分析:",
+            decision_b.get('raw_reasoning', '')[:1500],
+            "\n---\n",
+            "\n現在請你作為仲裁者，給出你的最終判斷。"
+        ])
+        
+        arbitrator_user_prompt = "\n".join(user_prompt_parts)
         
         print(f"\n🧠 [{self.arbitrator.name}] 仲裁中...")
         result = self.arbitrator.analyze(arbitrator_system_prompt, arbitrator_user_prompt)
@@ -391,8 +416,29 @@ class ArbitratorConsensusAgent:
             'risk_assessment': decision_a['risk_assessment']
         }
     
-    def _prepare_prompts(self, market_data: Dict, account_info: Dict, position_info: Optional[Dict]) -> Tuple[str, str]:
+    def _prepare_prompts(
+        self,
+        market_data: Dict,
+        account_info: Dict,
+        position_info: Optional[Dict],
+        historical_candles: Optional[List[Dict]],
+        successful_cases: Optional[List[Dict]]
+    ) -> Tuple[str, str]:
+        """準備快速模型的 prompt（增強版）"""
+        
         system_prompt = """你是專業的加密貨幣交易 AI 分析師。
+
+你會收到：
+1. 40 種技術指標（RSI, MACD, Bollinger Bands 等）
+2. 歷史 K 棒（最近 20 根，包含開高低收和影線資訊）
+3. 過去成功案例（供參考學習）
+
+分析時請重點關注：
+- K 線型態（錘子、十字星、包含線、影線長度）
+- 趋勢反轉訊號（連續上漲/下跌後的轉折）
+- 量能變化（放量/縮量）
+- 支撐/壔力位置
+- 過去成功案例的經驗
 
 輸出 JSON 格式:
 {
@@ -403,20 +449,38 @@ class ArbitratorConsensusAgent:
   "entry_price": 數字,
   "stop_loss": 數字,
   "take_profit": 數字,
-  "reasoning": "詳細理由",
+  "reasoning": "詳細理由，包含 K 線判斷和趋勢分析",
   "risk_assessment": "LOW" | "MEDIUM" | "HIGH"
 }"""
         
-        user_prompt = f"""市場數據:
-{json.dumps(market_data, indent=2, ensure_ascii=False)}
-
-賬戶資訊:
-{json.dumps(account_info, indent=2, ensure_ascii=False)}
-
-持倉:
-{json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'}
-
-請分析並給出交易建議。"""
+        # 準備 user prompt
+        user_prompt_parts = [
+            "市場數據（40 種技術指標）:",
+            json.dumps(market_data, indent=2, ensure_ascii=False),
+            "\n賬戶資訊:",
+            json.dumps(account_info, indent=2, ensure_ascii=False),
+            "\n持倉:",
+            json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
+        ]
+        
+        # 增加歷史 K 棒
+        if historical_candles and len(historical_candles) > 0:
+            user_prompt_parts.extend([
+                "\n---\n歷史 K 棒 (最近 20 根):",
+                "請特別注意 K 線的顏色、影線長度和型態。",
+                json.dumps(historical_candles[-20:], indent=2, ensure_ascii=False)
+            ])
+        
+        # 增加成功案例
+        if successful_cases and len(successful_cases) > 0:
+            user_prompt_parts.extend([
+                "\n---\n過去成功案例（供參考，學習何時該進場/出場）:",
+                json.dumps(successful_cases[:5], indent=2, ensure_ascii=False)
+            ])
+        
+        user_prompt_parts.append("\n請分析並給出交易建議。")
+        
+        user_prompt = "\n".join(user_prompt_parts)
         
         return system_prompt, user_prompt
     
