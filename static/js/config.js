@@ -20,6 +20,7 @@ const configElements = {
     googleApiKey: document.getElementById('googleApiKey'),
     openrouterApiKey: document.getElementById('openrouterApiKey'),
     githubToken: document.getElementById('githubToken'),
+    cloudflareAccountId: document.getElementById('cloudflareAccountId'),
     cloudflareApiKey: document.getElementById('cloudflareApiKey'),
     
     // 舊 API
@@ -100,6 +101,11 @@ async function loadConfig() {
         setApiKeyField('openrouterApiKey', config.openrouter_api_key_saved);
         setApiKeyField('githubToken', config.github_token_saved);
         setApiKeyField('cloudflareApiKey', config.cloudflare_api_key_saved);
+        
+        // Cloudflare Account ID (顯示实际值，不需掩码)
+        if (config.cloudflare_account_id && configElements.cloudflareAccountId) {
+            configElements.cloudflareAccountId.value = config.cloudflare_account_id;
+        }
         
         // 舊 API
         setApiKeyField('deepseekApiKey', config.deepseek_api_key_saved);
@@ -191,9 +197,15 @@ async function saveConfig() {
         if (configElements.githubToken && configElements.githubToken.value) {
             config.github_token = configElements.githubToken.value;
         }
+        
+        // Cloudflare Account ID + API Key
+        if (configElements.cloudflareAccountId && configElements.cloudflareAccountId.value) {
+            config.cloudflare_account_id = configElements.cloudflareAccountId.value;
+        }
         if (configElements.cloudflareApiKey && configElements.cloudflareApiKey.value) {
             config.cloudflare_api_key = configElements.cloudflareApiKey.value;
         }
+        
         if (configElements.deepseekApiKey && configElements.deepseekApiKey.value) {
             config.deepseek_api_key = configElements.deepseekApiKey.value;
         }
