@@ -1,6 +1,6 @@
 """
 多 API 管理器
-支持多個免費 API 輪換使用，自動故障轉移
+统一使用 DeepSeek-R1 类推理模型，但从不同 API 提供商輪转
 """
 import os
 import time
@@ -83,7 +83,10 @@ class APIProvider:
 
 
 class MultiAPIManager:
-    """多 API 管理器"""
+    """
+    多 API 管理器
+    统一使用 DeepSeek-R1 或类似的推理模型
+    """
     
     def __init__(self, config_file: str = 'api_config.json'):
         self.config_file = config_file
@@ -95,56 +98,58 @@ class MultiAPIManager:
             self._setup_default_providers()
     
     def _setup_default_providers(self):
-        """設置預設 API 提供商"""
+        """
+        設置預設 API 提供商
+        统一使用 DeepSeek-R1 类模型
+        """
         
-        # Groq - 速度最快，適合即時分析
-        if os.getenv('GROQ_API_KEY'):
-            self.providers.append(APIProvider(
-                name='Groq',
-                api_key=os.getenv('GROQ_API_KEY'),
-                base_url='https://api.groq.com/openai/v1',
-                model='llama-3.1-70b-versatile',
-                rpm_limit=30,
-                daily_limit=14400,
-                priority=5  # 最高優先級（速度快）
-            ))
-        
-        # OpenRouter - DeepSeek R1 免費版
+        # 1. OpenRouter - DeepSeek-R1 原生版 (免費，推理最強)
         if os.getenv('OPENROUTER_API_KEY'):
             self.providers.append(APIProvider(
-                name='OpenRouter_DSR1',
+                name='OpenRouter_R1',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-r1:free',
+                model='deepseek/deepseek-r1:free',  # DeepSeek-R1 原生
                 rpm_limit=20,
                 daily_limit=1000,
-                priority=4  # 推理能力強
+                priority=5  # 最高優先級
             ))
             
-            # OpenRouter - R1 Distill Llama 70B
+            # OpenRouter - R1 Distill Llama 70B (免費，速度快)
             self.providers.append(APIProvider(
-                name='OpenRouter_R1_Llama',
+                name='OpenRouter_R1_Distill',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-r1-distill-llama-70b:free',
+                model='deepseek/deepseek-r1-distill-llama-70b:free',  # R1 蒸駏版
+                rpm_limit=20,
+                daily_limit=1000,
+                priority=4
+            ))
+            
+            # OpenRouter - R1 Distill Qwen (免費)
+            self.providers.append(APIProvider(
+                name='OpenRouter_R1_Qwen',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1-distill-qwen-32b:free',  # R1 蒸駏 Qwen
                 rpm_limit=20,
                 daily_limit=1000,
                 priority=4
             ))
         
-        # Google Gemini Flash - 高額度免費模型
-        if os.getenv('GOOGLE_API_KEY'):
+        # 2. Groq - DeepSeek-R1 Distill Llama (速度超快)
+        if os.getenv('GROQ_API_KEY'):
             self.providers.append(APIProvider(
-                name='Google_Gemini_Flash',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='https://generativelanguage.googleapis.com/v1beta',
-                model='gemini-2.0-flash-exp',  # 改用 Flash，額度更高
-                rpm_limit=15,
-                daily_limit=1500,  # Flash 每天 1500 次
-                priority=5  # 最高優先級（推理強 + 速度快）
+                name='Groq_R1_Distill',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='deepseek-r1-distill-llama-70b',  # Groq 版 R1
+                rpm_limit=30,
+                daily_limit=14400,
+                priority=5  # 速度快
             ))
         
-        # GitHub Models
+        # 3. GitHub Models - GPT-4o-mini (備用，非 R1 但質量好)
         if os.getenv('GITHUB_TOKEN'):
             self.providers.append(APIProvider(
                 name='GitHub_GPT4o_mini',
@@ -153,38 +158,52 @@ class MultiAPIManager:
                 model='gpt-4o-mini',
                 rpm_limit=10,
                 daily_limit=1000,
-                priority=3
+                priority=3  # 備用
             ))
         
-        # Cloudflare Workers AI
+        # 4. Cloudflare - Llama 3.1 (備用，高額度)
         cf_account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
         cf_api_key = os.getenv('CLOUDFLARE_API_KEY')
         if cf_account_id and cf_api_key:
             self.providers.append(APIProvider(
-                name='Cloudflare',
+                name='Cloudflare_Llama',
                 api_key=cf_api_key,
                 base_url=f'https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/v1',
                 model='@cf/meta/llama-3.1-8b-instruct',
                 rpm_limit=100,
                 daily_limit=10000,
-                priority=2
+                priority=2  # 備用
             ))
         
-        print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商")
+        # 5. Google Gemini - Gemini 2.0 Flash (備用，非 R1 但質量極佳)
+        if os.getenv('GOOGLE_API_KEY'):
+            self.providers.append(APIProvider(
+                name='Google_Gemini_Flash',
+                api_key=os.getenv('GOOGLE_API_KEY'),
+                base_url='https://generativelanguage.googleapis.com/v1beta',
+                model='gemini-2.0-flash-exp',
+                rpm_limit=15,
+                daily_limit=1500,
+                priority=3  # 備用
+            ))
+        
+        print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商 (主要使用 DeepSeek-R1 系列)")
         for p in self.providers:
             print(f"  - {p.name}: {p.model} (優先級 {p.priority})")
     
     def get_available_provider(self, purpose: str = 'general') -> Optional[APIProvider]:
-        """獲取可用的 API 提供商
+        """
+        獲取可用的 API 提供商
+        優先使用 DeepSeek-R1 类模型
         
         Args:
             purpose: 用途 ('fast', 'reasoning', 'position', 'general')
         """
         # 根據用途選擇優先級
         priority_map = {
-            'fast': ['Groq', 'Cloudflare'],  # 速度優先
-            'reasoning': ['Google_Gemini_Flash', 'OpenRouter_DSR1', 'OpenRouter_R1_Llama'],  # 推理優先
-            'position': ['Groq', 'Google_Gemini_Flash'],  # 倉位控制（需要快速+準確）
+            'fast': ['Groq_R1_Distill', 'OpenRouter_R1_Distill'],  # 速度優先
+            'reasoning': ['OpenRouter_R1', 'OpenRouter_R1_Distill'],  # 推理優先
+            'position': ['Groq_R1_Distill', 'OpenRouter_R1'],  # 倉位控制：快速+準確
             'general': None  # 按優先級排序
         }
         
