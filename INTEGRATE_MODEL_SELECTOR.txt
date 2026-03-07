@@ -1,0 +1,41 @@
+===========================================
+模型選擇器整合指示
+===========================================
+
+在 app_flask.py 中添加以下代碼：
+
+1. 在檔案開頭的 import 區域增加：
+
+from api_routes_model_selector import register_model_selector_routes
+
+
+2. 在 if __name__ == '__main__': 之前， socketio.run() 之前增加：
+
+# 註冊模型選擇器 API 路由
+register_model_selector_routes(app)
+
+
+3. 在 templates/index.html 中添加：
+
+<!-- 在 <head> 中增加 CSS -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/model_selector.css') }}">
+
+<!-- 在頁面中增加容器（放在配置區域） -->
+<div id="model-selector-container"></div>
+
+<!-- 在 </body> 前增加 JS -->
+<script src="{{ url_for('static', filename='js/model_selector.js') }}"></script>
+
+
+4. 重新啟動伺服器：
+
+python app_flask.py
+
+
+5. 測試 API：
+
+curl http://localhost:5000/api/models/available
+curl http://localhost:5000/api/models/config
+
+
+完成！現在你可以在 Web 界面自由選擇 Model A, Model B, 仲裁者。
