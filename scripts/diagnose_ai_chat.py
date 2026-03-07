@@ -4,7 +4,7 @@
 檢查 arbitrator_agent 和 last_analysis_detail 狀態
 
 使用方法:
-1. 確保 Flask 應用正在運行 (python app.py)
+1. 確保 Flask 應用正在運行 (python app_flask.py)
 2. 執行: python scripts/diagnose_ai_chat.py
 3. 查看診斷結果和建議
 """
@@ -43,7 +43,7 @@ def diagnose_ai_chat(base_url='http://localhost:5000'):
             print("   1. arbitrator_agent 未初始化")
             print("   2. 尚未執行 AI 分析")
             print("   3. last_analysis_detail 為 None")
-            print("   4. app.py 中 USE_ARBITRATOR_CONSENSUS = False")
+            print("   4. config.json 中 use_arbitrator_consensus: false")
         else:
             print("   ✅ API 響應成功")
             data = result.get('data', {})
@@ -65,7 +65,7 @@ def diagnose_ai_chat(base_url='http://localhost:5000'):
     except requests.exceptions.ConnectionError:
         all_passed = False
         print("   ❌ 無法連接到 Flask 應用")
-        print("   請確保應用正在運行: python app.py")
+        print("   請確保應用正在運行: python app_flask.py")
         return False
     
     except Exception as e:
@@ -92,9 +92,8 @@ def diagnose_ai_chat(base_url='http://localhost:5000'):
         else:
             all_passed = False
             print("   ❌ Arbitrator 未啟用")
-            print("   請確保:")
-            print("   1. app.py 中 USE_ARBITRATOR_CONSENSUS = True")
-            print("   2. 已執行過「獲取實時訊息」")
+            print("   請檢查 config.json 中:")
+            print("   'use_arbitrator_consensus': true")
     
     except Exception as e:
         print(f"   ❌ 錯誤: {e}")
@@ -134,18 +133,34 @@ def diagnose_ai_chat(base_url='http://localhost:5000'):
                 print(f"   ❌ 仍然無法獲取內容: {result.get('message')}")
     
     except requests.exceptions.Timeout:
-        print("   ⏱️ 分析超時（AI 分析需要時間，這是正常的）")
+        print("   ⏱️  分析超時（AI 分析需要時間，這是正常的）")
         print("   請稍後手動檢查 http://localhost:5000/ai-chat")
     
     except Exception as e:
         all_passed = False
         print(f"   ❌ 錯誤: {e}")
     
-    # 測試 4: 檢查最新訊號
-    print("\n[測試 4] 檢查最新訊號...")
+    # 測試 4: 檢查 config.json
+    print("\n[測試 4] 檢查 config.json 配置...")
     try:
-        # 這裡可以檢查主頁是否有顯示最新訊號
-        print("   請手動檢查主頁是否有顯示 MODEL A 的分析內容")
+        import json
+        import os
+        
+        if os.path.exists('config.json'):
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                use_arbitrator = config.get('use_arbitrator_consensus', False)
+                print(f"   use_arbitrator_consensus: {use_arbitrator}")
+                
+                if not use_arbitrator:
+                    all_passed = False
+                    print("   ❌ 仲裁系統未啟用")
+                    print("   請在主頁上面選擇「啟用仲裁系統」後保存配置")
+                else:
+                    print("   ✅ 仲裁系統已啟用")
+        else:
+            print("   ⚠️  config.json 不存在")
+            print("   請在主頁保存一次配置")
     except Exception as e:
         print(f"   ❌ 錯誤: {e}")
     
@@ -158,11 +173,12 @@ def diagnose_ai_chat(base_url='http://localhost:5000'):
     
     print("\n🛠️  建議:")
     if not all_passed:
-        print("1. 檢查 console 輸出的調試信息")
-        print("2. 確保 app.py 中USE_ARBITRATOR_CONSENSUS = True")
-        print("3. 執行「獲取實時訊息」後再打開 AI 聊天室")
-        print("4. 如果 Executor 無內容，執行: python scripts/fix_arbitrator_else.py")
-        print("5. 重啟 Flask 應用")
+        print("1. 檢查 Flask console 的調試輸出")
+        print("2. 確保 config.json 中 use_arbitrator_consensus: true")
+        print("3. 在主頁選擇「啟用仲裁系統」後保存配置")
+        print("4. 執行「獲取實時訊息」後再打開 AI 聊天室")
+        print("5. 如果 Executor 無內容，執行: python scripts/fix_arbitrator_else.py")
+        print("6. 重啟 Flask 應用: python app_flask.py")
     else:
         print("✅ 系統運作正常！")
     
