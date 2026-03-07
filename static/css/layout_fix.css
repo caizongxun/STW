@@ -1,0 +1,206 @@
+/**
+ * 主頁面排版修復
+ * 解決 panel 被擠到下面的問題
+ */
+
+/* 主容器修復 */
+.main-container {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* 側邊欄固定寬度 */
+.sidebar {
+    width: 270px;
+    min-width: 270px;
+    max-width: 270px;
+    flex-shrink: 0;
+    background: #0a0e1a;
+    border-right: 1px solid #252c3f;
+    overflow-y: auto;
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+}
+
+/* 內容區域 */
+.content-area {
+    flex: 1;
+    margin-left: 270px; /* 對應側邊欄寬度 */
+    padding: 20px;
+    background: #0a0e1a;
+    min-height: 100vh;
+    width: calc(100% - 270px);
+    box-sizing: border-box;
+}
+
+/* Tab 內容 */
+.tab-content {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0;
+}
+
+.tab-pane {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* 模型選擇器容器 */
+#model-selector-container,
+#arbitrator-settings-container {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Panel 容器 */
+.panel,
+.settings-panel,
+.control-panel {
+    width: 100%;
+    max-width: 100%;
+    margin: 20px 0;
+    box-sizing: border-box;
+}
+
+/* Grid 修復 */
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 -10px;
+    width: calc(100% + 20px);
+}
+
+.col,
+.col-md-6,
+.col-lg-4,
+.col-lg-6,
+.col-lg-12 {
+    padding: 0 10px;
+    box-sizing: border-box;
+}
+
+.col-md-6 {
+    flex: 0 0 50%;
+    max-width: 50%;
+}
+
+.col-lg-4 {
+    flex: 0 0 33.333%;
+    max-width: 33.333%;
+}
+
+.col-lg-6 {
+    flex: 0 0 50%;
+    max-width: 50%;
+}
+
+.col-lg-12 {
+    flex: 0 0 100%;
+    max-width: 100%;
+}
+
+/* 響應式設計 */
+@media (max-width: 1200px) {
+    .col-lg-4,
+    .col-lg-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: 240px;
+        min-width: 240px;
+        max-width: 240px;
+    }
+    
+    .content-area {
+        margin-left: 240px;
+        width: calc(100% - 240px);
+        padding: 15px;
+    }
+    
+    .col-md-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 576px) {
+    .sidebar {
+        width: 60px;
+        min-width: 60px;
+        max-width: 60px;
+    }
+    
+    .content-area {
+        margin-left: 60px;
+        width: calc(100% - 60px);
+        padding: 10px;
+    }
+}
+
+/* 確保所有元素使用 box-sizing: border-box */
+* {
+    box-sizing: border-box;
+}
+
+/* 防止水平滾動 */
+body {
+    overflow-x: hidden;
+}
+
+.content-area {
+    overflow-x: hidden;
+}
+
+/* 修復 Flexbox 容器 */
+.d-flex {
+    display: flex !important;
+}
+
+.flex-column {
+    flex-direction: column !important;
+}
+
+.align-items-center {
+    align-items: center !important;
+}
+
+.justify-content-between {
+    justify-content: space-between !important;
+}
+
+/* Tab 切換 */
+.nav-tabs {
+    border-bottom: 2px solid #252c3f;
+    margin-bottom: 20px;
+}
+
+.nav-tabs .nav-link {
+    color: #8b92a8;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.nav-tabs .nav-link:hover {
+    color: #00d4ff;
+    border-bottom-color: #00d4ff;
+}
+
+.nav-tabs .nav-link.active {
+    color: #00d4ff;
+    border-bottom-color: #00d4ff;
+    background: transparent;
+}
