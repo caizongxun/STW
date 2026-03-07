@@ -5,6 +5,7 @@ Flask 主伺服器 - 取代 Streamlit
 修正: 啟動時自動讀取 config.json 並設定環境變數
 新增: 模型選擇器功能 (支持熱更新)
 新增: 分析詳細功能 (顯示prompt和模型回應)
+新增: 多時間框架分析 (15m+1h+4h) + 逆勢操作
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -30,13 +31,16 @@ try:
     from core.multi_api_manager import MultiAPIManager
     from core.dual_model_agent import DualModelDecisionAgent
     from core.arbitrator_consensus_agent import ArbitratorConsensusAgent
+    from core.multi_timeframe_analyzer import MultiTimeframeAnalyzer
     HAS_CONFIG_MANAGER = True
     HAS_DUAL_MODEL = True
     HAS_ARBITRATOR = True
+    HAS_MULTI_TIMEFRAME = True
 except ImportError as e:
     HAS_CONFIG_MANAGER = False
     HAS_DUAL_MODEL = False
     HAS_ARBITRATOR = False
+    HAS_MULTI_TIMEFRAME = False
     print(f"警告: 部分功能不可用 - {e}")
 
 # 導入模型選擇器 API 路由
@@ -67,6 +71,7 @@ app_state = {
     'ai_agent': None,
     'dual_agent': None,
     'arbitrator_agent': None,
+    'mt_analyzer': None,  # 多時間框架分析器
     'use_dual_model': False,
     'use_arbitrator_consensus': False,
     'dual_model_mode': 'consensus',
@@ -186,7 +191,7 @@ def _prepare_historical_candles(df: pd.DataFrame, num_candles: int = 20) -> List
     # 從倒數 num_candles 根開始處理
     for i in range(-num_candles, 0):
         # 對每一根 K 棒使用 prepare_market_features 計算完整指標
-        # 使用截至當前 K 棒的資料
+        # 使用愰至當前 K 棒的資料
         df_slice = df.iloc[:len(df) + i + 1].copy()
         row = df.iloc[i]
         
@@ -215,7 +220,8 @@ def _get_ai_decision(
     account_info: Dict,
     position_info: Optional[Dict],
     historical_candles: Optional[List[Dict]] = None,
-    successful_cases: Optional[List[Dict]] = None
+    successful_cases: Optional[List[Dict]] = None,
+    multi_timeframe_data: Optional[Dict] = None
 ):
     """獲取 AI 決策（單模型/雙模型/兩階段仲裁）"""
     
@@ -224,13 +230,14 @@ def _get_ai_decision(
         if not app_state['arbitrator_agent']:
             app_state['arbitrator_agent'] = ArbitratorConsensusAgent()
         
-        print("[DECISION] Using Arbitrator Consensus (2-stage)")
+        print("[DECISION] Using Arbitrator Consensus (2-stage with Multi-Timeframe)")
         result = app_state['arbitrator_agent'].analyze_with_arbitration(
             market_data=market_data,
             account_info=account_info,
             position_info=position_info,
             historical_candles=historical_candles,
-            successful_cases=successful_cases
+            successful_cases=successful_cases,
+            multi_timeframe_data=multi_timeframe_data
         )
         result['model_type'] = 'arbitrator'
         return result
@@ -282,6 +289,7 @@ def get_config():
         config['dual_model_mode'] = app_state['dual_model_mode']
         config['has_dual_model'] = HAS_DUAL_MODEL
         config['has_arbitrator'] = HAS_ARBITRATOR
+        config['has_multi_timeframe'] = HAS_MULTI_TIMEFRAME
         
         return jsonify(config)
     except Exception as e:
@@ -461,6 +469,11 @@ def analyze_market():
         if not app_state['data_loader']:
             app_state['data_loader'] = RealtimeDataLoader()
         
+        # 初始化多時間框架分析器
+        if HAS_MULTI_TIMEFRAME and not app_state['mt_analyzer']:
+            app_state['mt_analyzer'] = MultiTimeframeAnalyzer(app_state['data_loader'])
+            print("✅ 多時間框架分析器已初始化")
+        
         df = app_state['data_loader'].load_data(symbol, timeframe)
         
         if df is None or len(df) < 200:
@@ -468,6 +481,27 @@ def analyze_market():
         
         latest_data = prepare_market_features(df.iloc[-1], df)
         historical_candles = _prepare_historical_candles(df, num_candles=20)
+        
+        # 獲取多時間框架數據
+        multi_timeframe_data = None
+        if HAS_MULTI_TIMEFRAME and app_state['mt_analyzer']:
+            try:
+                multi_timeframe_data = app_state['mt_analyzer'].prepare_multi_timeframe_data(
+                    symbol=symbol,
+                    primary_timeframe=timeframe,
+                    secondary_timeframes=['1h', '4h'],
+                    num_candles=20
+                )
+                print(f"✅ 多時間框架數據已準備: {list(multi_timeframe_data.keys())}")
+                
+                # 檢查逆勢機會
+                counter_signal = app_state['mt_analyzer'].get_counter_trend_signal(multi_timeframe_data)
+                if counter_signal['has_signal']:
+                    print(f"🚨 高信心逆勢機會: {counter_signal['direction']} (信心度 {counter_signal['confidence']}%)")
+                    print(f"   {counter_signal['reasoning']}")
+            except Exception as e:
+                print(f"⚠️ 多時間框架分析失敗: {e}")
+                multi_timeframe_data = None
         
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
@@ -486,7 +520,8 @@ def analyze_market():
             account_info=account_info,
             position_info=position_info,
             historical_candles=historical_candles,
-            successful_cases=app_state['cases'][:10]
+            successful_cases=app_state['cases'][:10],
+            multi_timeframe_data=multi_timeframe_data
         )
         
         latest_price = float(df['close'].iloc[-1])
@@ -512,8 +547,14 @@ def analyze_market():
         
         print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
         print(f"[ANALYZE] Model type: {decision.get('model_type', 'unknown')}")
-        print(f"[ANALYZE] Provided {len(historical_candles)} historical candles with 40+ features each")
+        print(f"[ANALYZE] Provided {len(historical_candles)} historical candles (15m) with 40+ features each")
+        if multi_timeframe_data:
+            print(f"[ANALYZE] Multi-timeframe: {list(multi_timeframe_data.keys())}")
         print(f"[ANALYZE] Provided {len(app_state['cases'][:10])} successful cases")
+        
+        # 如果是逆勢操作，加入標記
+        if decision.get('is_counter_trend'):
+            print("[ANALYZE] 🔄 Counter-trend operation detected!")
         
         return jsonify(app_state['latest_signal'])
         
@@ -579,6 +620,19 @@ def update_ai_log():
         market_data = prepare_market_features(current_candle, df)
         historical_candles = _prepare_historical_candles(df, num_candles=20)
         
+        # 獲取多時間框架數據
+        multi_timeframe_data = None
+        if HAS_MULTI_TIMEFRAME and app_state['mt_analyzer']:
+            try:
+                multi_timeframe_data = app_state['mt_analyzer'].prepare_multi_timeframe_data(
+                    symbol=symbol,
+                    primary_timeframe=timeframe,
+                    secondary_timeframes=['1h', '4h'],
+                    num_candles=20
+                )
+            except Exception as e:
+                print(f"⚠️ 多時間框架分析失敗: {e}")
+        
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
             position_info = app_state['bybit_trader'].get_position()
@@ -596,7 +650,8 @@ def update_ai_log():
             account_info=account_info,
             position_info=position_info,
             historical_candles=historical_candles,
-            successful_cases=app_state['cases'][:10]
+            successful_cases=app_state['cases'][:10],
+            multi_timeframe_data=multi_timeframe_data
         )
         
         _save_ai_prediction_log(
@@ -728,12 +783,26 @@ def bybit_trading_worker(config):
                 account_info = trader.get_account_info()
                 position_info = trader.get_position()
                 
+                # 獲取多時間框架數據
+                multi_timeframe_data = None
+                if HAS_MULTI_TIMEFRAME and app_state['mt_analyzer']:
+                    try:
+                        multi_timeframe_data = app_state['mt_analyzer'].prepare_multi_timeframe_data(
+                            symbol=symbol,
+                            primary_timeframe=timeframe,
+                            secondary_timeframes=['1h', '4h'],
+                            num_candles=20
+                        )
+                    except Exception as e:
+                        print(f"⚠️ 多時間框架分析失敗: {e}")
+                
                 decision = _get_ai_decision(
                     market_data=market_data,
                     account_info=account_info,
                     position_info=position_info,
                     historical_candles=historical_candles,
-                    successful_cases=app_state['cases'][:10]
+                    successful_cases=app_state['cases'][:10],
+                    multi_timeframe_data=multi_timeframe_data
                 )
                 
                 _save_ai_prediction_log(
@@ -797,6 +866,7 @@ def _save_ai_prediction_log(
         'reasoning': decision.get('reasoning', '')[:200],
         'risk_assessment': decision.get('risk_assessment', 'MEDIUM'),
         'model_type': decision.get('model_type', 'single'),
+        'is_counter_trend': decision.get('is_counter_trend', False),
         'agreement': decision.get('agreement'),
         'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
         'actual_direction': None,
@@ -819,7 +889,8 @@ def _save_ai_prediction_log(
         app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
     
     model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] in ['dual', 'arbitrator'] else ""
-    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}")
+    counter_info = " [🔄 Counter-trend]" if log_entry['is_counter_trend'] else ""
+    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}{counter_info}")
     print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
 
@@ -899,6 +970,10 @@ if __name__ == '__main__':
     print("    - Decision history tracking (avoid duplicate)")
     print("    - Historical candles with 40+ technical indicators")
     
+    if HAS_MULTI_TIMEFRAME:
+        print("    - Multi-timeframe analysis (15m + 1h + 4h)")
+        print("    - Counter-trend operation support")
+    
     if HAS_MODEL_SELECTOR:
         print("    - Model selector with hot-reload (熱更新)")
     
@@ -940,6 +1015,11 @@ if __name__ == '__main__':
         print("  Dual Model: Enabled")
     else:
         print("  Dual Model: Disabled")
+    
+    if HAS_MULTI_TIMEFRAME:
+        print("  Multi-Timeframe: Enabled")
+    else:
+        print("  Multi-Timeframe: Disabled")
     
     if HAS_MODEL_SELECTOR:
         print("  Model Selector: Enabled (Hot-Reload)")
