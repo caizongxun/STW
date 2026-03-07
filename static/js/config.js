@@ -15,6 +15,9 @@ const configElements = {
     aiMaxTokens: document.getElementById('aiMaxTokens'),
     aiConfidenceThreshold: document.getElementById('aiConfidenceThreshold'),
     
+    // 兩階段仲裁
+    useArbitratorConsensus: document.getElementById('useArbitratorConsensus'),
+    
     // 多 API 設定
     groqApiKey: document.getElementById('groqApiKey'),
     googleApiKey: document.getElementById('googleApiKey'),
@@ -95,6 +98,11 @@ async function loadConfig() {
         if (config.ai_max_tokens) configElements.aiMaxTokens.value = config.ai_max_tokens;
         if (config.ai_confidence_threshold !== undefined) configElements.aiConfidenceThreshold.value = config.ai_confidence_threshold;
         
+        // 兩階段仲裁
+        if (configElements.useArbitratorConsensus && config.use_arbitrator_consensus !== undefined) {
+            configElements.useArbitratorConsensus.checked = config.use_arbitrator_consensus;
+        }
+        
         // 多 API 設定 (顯示掩碼)
         setApiKeyField('groqApiKey', config.groq_api_key_saved);
         setApiKeyField('googleApiKey', config.google_api_key_saved);
@@ -102,7 +110,7 @@ async function loadConfig() {
         setApiKeyField('githubToken', config.github_token_saved);
         setApiKeyField('cloudflareApiKey', config.cloudflare_api_key_saved);
         
-        // Cloudflare Account ID (顯示实际值，不需掩码)
+        // Cloudflare Account ID (顯示实际值，不需掉码)
         if (config.cloudflare_account_id && configElements.cloudflareAccountId) {
             configElements.cloudflareAccountId.value = config.cloudflare_account_id;
         }
@@ -171,6 +179,9 @@ async function saveConfig() {
             ai_temperature: parseFloat(configElements.aiTemperature.value),
             ai_max_tokens: parseInt(configElements.aiMaxTokens.value),
             ai_confidence_threshold: parseFloat(configElements.aiConfidenceThreshold.value),
+            
+            // 兩階段仲裁
+            use_arbitrator_consensus: configElements.useArbitratorConsensus ? configElements.useArbitratorConsensus.checked : false,
             
             // 集成設定
             enable_ensemble: configElements.enableEnsemble ? configElements.enableEnsemble.checked : false,
