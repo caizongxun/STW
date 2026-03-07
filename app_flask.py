@@ -2,6 +2,7 @@
 Flask 主伺服器 - 取代 Streamlit
 支持即時更新、多 Tab 同時操作、無閃爍
 新增: 兩階段仲裁決策系統
+修正: 啟動時自動讀取 config.json 並設定環境變數
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -69,10 +70,15 @@ if HAS_CONFIG_MANAGER:
 
 
 def load_config():
+    """載入配置並自動設定環境變數"""
     if HAS_CONFIG_MANAGER and app_state['config_manager']:
         try:
             config = app_state['config_manager'].load()
             app_state['user_config'] = config
+            
+            # 自動設定環境變數
+            app_state['config_manager'].export_to_env()
+            print("✅ 已自動設定環境變數")
             
             app_state['use_dual_model'] = config.get('use_dual_model', False)
             app_state['use_arbitrator_consensus'] = config.get('use_arbitrator_consensus', False)
@@ -831,6 +837,7 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
 
 
 if __name__ == '__main__':
+    # 啟動時自動載入配置並設定環境變數
     load_config()
     load_cases()
     
@@ -849,6 +856,7 @@ if __name__ == '__main__':
     print("    - Learning cases library")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
+    print("    - Decision history tracking (avoid duplicate)")
     
     if HAS_ARBITRATOR:
         print("    - Two-stage Arbitrator Consensus")
@@ -863,6 +871,17 @@ if __name__ == '__main__':
     
     if HAS_CONFIG_MANAGER:
         print("  Config Manager: Enabled")
+        # 顯示已設定的 API Key
+        env_keys = []
+        if os.getenv('OPENROUTER_API_KEY'):
+            env_keys.append('OPENROUTER_API_KEY')
+        if os.getenv('GROQ_API_KEY'):
+            env_keys.append('GROQ_API_KEY')
+        if os.getenv('GOOGLE_API_KEY'):
+            env_keys.append('GOOGLE_API_KEY')
+        
+        if env_keys:
+            print(f"  Environment Keys: {', '.join(env_keys)}")
     else:
         print("  Config Manager: Disabled")
     
