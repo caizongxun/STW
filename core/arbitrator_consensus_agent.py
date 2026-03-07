@@ -2,21 +2,16 @@
 兩階段仲裁決策系統 - AI 競賽優化版
 
 階段 1: 兩個快速模型獨立分析
-  - Model A: Llama 3.3 70B (Groq) - 速度極快
-  - Model B: Gemini 2.0 Flash - 穩定可靠
+  - Model A: Llama 3.3 70B (Groq) 或 DeepSeek R1 (OpenRouter)
+  - Model B: DeepSeek V3 (OpenRouter) 或 Gemini 2.0 Flash
 
 階段 2: 仲裁者模型最終決策
-  - 如果 A 和 B 同意 → 直接執行
-  - 如果 A 和 B 分歧 → Llama 405B 仲裁（看完兩個分析後決定）
+  - Llama 3.1 405B (OpenRouter) - 最強免費模型
 
 優勢:
-1. 增加交易機會（不會直接 HOLD）
-2. 節省最強模型額度（只在需要時調用）
-3. 仲裁者有完整資訊（看到兩個分析）
-
-新增：
-- 歷史 K 棒分析（判斷趋勢反轉、K 線型態）
-- 成功案例參考（從過去學習）
+1. 全部免費模型，無需信用卡
+2. 多個備用選擇，避免單點失敗
+3. DeepSeek 推理能力強，適合交易分析
 """
 import json
 import time
@@ -121,12 +116,13 @@ class ArbitratorConsensusAgent:
     """
     兩階段仲裁決策引擎
     用於 AI 競賽，平衡交易機會與準確性
+    全部使用免費模型
     """
     
     def __init__(self):
-        self.fast_model_a = None  # Llama 3.3 70B (Groq)
-        self.fast_model_b = None  # Gemini 2.0 Flash
-        self.arbitrator = None     # Llama 3.1 405B
+        self.fast_model_a = None
+        self.fast_model_b = None
+        self.arbitrator = None
         
         self.decision_history: List[Dict] = []
         self.arbitration_count = 0
@@ -136,10 +132,10 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("🏆 兩階段仲裁決策系統啟動")
+        print("🏆 兩階段仲裁決策系統啟動 (全部免費模型)")
         print("="*70)
         
-        # Fast Model A: Llama 3.3 70B (Groq)
+        # Fast Model A: 優先 Groq Llama 70B，備用 OpenRouter DeepSeek R1
         if os.getenv('GROQ_API_KEY'):
             self.fast_model_a = OpenAICompatibleModel(
                 name='Llama_70B_Fast',
@@ -148,26 +144,34 @@ class ArbitratorConsensusAgent:
                 model='llama-3.3-70b-versatile'
             )
             print("✅ 快速模型 A: Llama 3.3 70B (Groq) - 速度極快")
+        elif os.getenv('OPENROUTER_API_KEY'):
+            self.fast_model_a = OpenAICompatibleModel(
+                name='DeepSeek_R1',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1:free'
+            )
+            print("✅ 快速模型 A: DeepSeek R1 (OpenRouter) - 推理能力強")
         
-        # Fast Model B: Gemini 2.0 Flash
-        if os.getenv('GOOGLE_API_KEY'):
+        # Fast Model B: 優先 OpenRouter DeepSeek V3，備用 Gemini
+        if os.getenv('OPENROUTER_API_KEY'):
+            self.fast_model_b = OpenAICompatibleModel(
+                name='DeepSeek_V3',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-chat:free'
+            )
+            print("✅ 快速模型 B: DeepSeek V3 (OpenRouter) - 通用強")
+        elif os.getenv('GOOGLE_API_KEY'):
             self.fast_model_b = GeminiModel(
                 name='Gemini_2_Flash',
                 api_key=os.getenv('GOOGLE_API_KEY'),
                 base_url='',
                 model='gemini-2.0-flash'
             )
-            print("✅ 快速模型 B: Gemini 2.0 Flash (Google) - 穩定可靠")
-        elif os.getenv('OPENROUTER_API_KEY'):
-            self.fast_model_b = OpenAICompatibleModel(
-                name='Gemini_2_Flash_OR',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='google/gemini-2.0-flash-thinking-exp:free'
-            )
-            print("✅ 快速模型 B: Gemini 2.0 Flash (OpenRouter)")
+            print("✅ 快速模型 B: Gemini 2.0 Flash (Google) - 備用")
         
-        # Arbitrator: Llama 3.1 405B (OpenRouter)
+        # Arbitrator: Llama 3.1 405B (OpenRouter 免費最強)
         if os.getenv('OPENROUTER_API_KEY'):
             self.arbitrator = OpenAICompatibleModel(
                 name='Llama_405B_Arbitrator',
@@ -175,9 +179,15 @@ class ArbitratorConsensusAgent:
                 base_url='https://openrouter.ai/api/v1',
                 model='meta-llama/llama-3.1-405b-instruct:free'
             )
-            print("✅ 仲裁者: Llama 3.1 405B (OpenRouter) - 最強推理")
+            print("✅ 仲裁者: Llama 3.1 405B (OpenRouter) - 免費最強")
+        
+        # 如果沒有任何模型，顯示警告
+        if not self.fast_model_a and not self.fast_model_b:
+            print("⚠️  警告: 沒有配置任何 API Key")
+            print("    請設定 OPENROUTER_API_KEY 或 GROQ_API_KEY")
         
         print("\n💡 策略: 兩個快速模型分析 → 同意則執行，分歧則由 405B 仲裁")
+        print("🆓 全部免費: OpenRouter (20 req/min, 200 req/day)")
         print("="*70 + "\n")
     
     def analyze_with_arbitration(
@@ -215,7 +225,7 @@ class ArbitratorConsensusAgent:
             print(f"✅ [{self.fast_model_a.name}]: {decision_a['action']} (信心度 {decision_a['confidence']}%) - {result_a['elapsed_time']:.1f}s")
             print(f"   理由: {decision_a['reasoning'][:80]}...")
         else:
-            print(f"❌ [{self.fast_model_a.name}] 失敗: {result_a.get('error')}")
+            print(f"❌ [{self.fast_model_a.name}] 失敗: {result_a.get('error', 'Unknown')[:100]}")
             decision_a = None
         
         time.sleep(1)
@@ -229,7 +239,7 @@ class ArbitratorConsensusAgent:
             print(f"✅ [{self.fast_model_b.name}]: {decision_b['action']} (信心度 {decision_b['confidence']}%) - {result_b['elapsed_time']:.1f}s")
             print(f"   理由: {decision_b['reasoning'][:80]}...")
         else:
-            print(f"❌ [{self.fast_model_b.name}] 失敗: {result_b.get('error')}")
+            print(f"❌ [{self.fast_model_b.name}] 失敗: {result_b.get('error', 'Unknown')[:100]}")
             decision_b = None
         
         # 檢查是否需要仲裁
@@ -260,12 +270,15 @@ class ArbitratorConsensusAgent:
                 final_decision['arbitration'] = True
         
         elif decision_a:
+            print("\n⚠️ 模型 B 失敗，使用模型 A 的結果")
             final_decision = decision_a
             final_decision['arbitration'] = False
         elif decision_b:
+            print("\n⚠️ 模型 A 失敗，使用模型 B 的結果")
             final_decision = decision_b
             final_decision['arbitration'] = False
         else:
+            print("\n❌ 兩個模型都失敗，HOLD")
             final_decision = self._emergency_hold()
             final_decision['arbitration'] = False
         
@@ -367,14 +380,14 @@ class ArbitratorConsensusAgent:
         
         user_prompt_parts.extend([
             "\n---\n",
-            f"\n模型 A (Llama 70B) 的分析:",
+            f"\n模型 A ({self.fast_model_a.name}) 的分析:",
             f"決策: {decision_a['action']}",
             f"信心度: {decision_a['confidence']}%",
             f"理由: {decision_a['reasoning']}",
             f"完整分析:",
             decision_a.get('raw_reasoning', '')[:1500],
             "\n---\n",
-            f"\n模型 B (Gemini 2.0) 的分析:",
+            f"\n模型 B ({self.fast_model_b.name}) 的分析:",
             f"決策: {decision_b['action']}",
             f"信心度: {decision_b['confidence']}%",
             f"理由: {decision_b['reasoning']}",
@@ -394,7 +407,8 @@ class ArbitratorConsensusAgent:
             print(f"✅ 仲裁完成: {final_decision['action']} (信心度 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
             return final_decision
         else:
-            print(f"❌ 仲裁失敗，選擇信心度較高的模型")
+            print(f"❌ 仲裁失敗: {result.get('error', 'Unknown')[:100]}")
+            print("⚠️ 選擇信心度較高的模型")
             if decision_a['confidence'] >= decision_b['confidence']:
                 return decision_a
             else:
@@ -435,7 +449,7 @@ class ArbitratorConsensusAgent:
 
 分析時請重點關注：
 - K 線型態（錘子、十字星、包含線、影線長度）
-- 趋勢反轉訊號（連續上漲/下跌後的轉折）
+- 趋勡反轉訊號（連續上漲/下跌後的轉折）
 - 量能變化（放量/縮量）
 - 支撐/壔力位置
 - 過去成功案例的經驗
@@ -449,7 +463,7 @@ class ArbitratorConsensusAgent:
   "entry_price": 數字,
   "stop_loss": 數字,
   "take_profit": 數字,
-  "reasoning": "詳細理由，包含 K 線判斷和趋勢分析",
+  "reasoning": "詳細理由，包含 K 線判斷和趋勡分析",
   "risk_assessment": "LOW" | "MEDIUM" | "HIGH"
 }"""
         
