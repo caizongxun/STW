@@ -2,7 +2,7 @@
 模型配置管理器 - 支持即時更新(不用重啟)
 讓用戶在 Web UI 自由選擇 Model A, Model B, 仲裁者
 修正: Google Gemini 正確模型名稱 (2026年3月)
-新增: 30+ 免費模型
+新增: 40+ 免費模型 (含 GitHub Models + Cloudflare Workers AI)
 """
 import json
 import os
@@ -221,6 +221,140 @@ class ModelConfigManager:
                 'recommended_for': '快速分析',
                 'available': bool(os.getenv('OPENROUTER_API_KEY'))
             },
+            
+            # ===== GitHub Models (完全免費 150/day) =====
+            {
+                'id': 'github_gpt4o',
+                'name': 'GPT-4o 🚀',
+                'platform': 'GitHub Models',
+                'model_name': 'gpt-4o',
+                'api_base': 'https://models.inference.ai.azure.com',
+                'api_key_env': 'GITHUB_TOKEN',
+                'category': 'arbitrator',
+                'speed': '5-10s',
+                'quota': '150/day',
+                'quality': 6,
+                'recommended_for': '仲裁者/高品質',
+                'available': bool(os.getenv('GITHUB_TOKEN'))
+            },
+            {
+                'id': 'github_gpt4o_mini',
+                'name': 'GPT-4o Mini',
+                'platform': 'GitHub Models',
+                'model_name': 'gpt-4o-mini',
+                'api_base': 'https://models.inference.ai.azure.com',
+                'api_key_env': 'GITHUB_TOKEN',
+                'category': 'fast',
+                'speed': '2-4s',
+                'quota': '150/day',
+                'quality': 4,
+                'recommended_for': '快速分析',
+                'available': bool(os.getenv('GITHUB_TOKEN'))
+            },
+            {
+                'id': 'github_llama_70b',
+                'name': 'Llama 3.3 70B',
+                'platform': 'GitHub Models',
+                'model_name': 'meta-llama-3.3-70b-instruct',
+                'api_base': 'https://models.inference.ai.azure.com',
+                'api_key_env': 'GITHUB_TOKEN',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '150/day',
+                'quality': 5,
+                'recommended_for': '通用分析',
+                'available': bool(os.getenv('GITHUB_TOKEN'))
+            },
+            {
+                'id': 'github_llama_405b',
+                'name': 'Llama 3.1 405B 👑',
+                'platform': 'GitHub Models',
+                'model_name': 'meta-llama-3.1-405b-instruct',
+                'api_base': 'https://models.inference.ai.azure.com',
+                'api_key_env': 'GITHUB_TOKEN',
+                'category': 'arbitrator',
+                'speed': '10-20s',
+                'quota': '150/day',
+                'quality': 6,
+                'recommended_for': '仲裁者/重要決策',
+                'available': bool(os.getenv('GITHUB_TOKEN'))
+            },
+            {
+                'id': 'github_qwen3_32b',
+                'name': 'Qwen 2.5 32B',
+                'platform': 'GitHub Models',
+                'model_name': 'qwen-2.5-coder-32b-instruct',
+                'api_base': 'https://models.inference.ai.azure.com',
+                'api_key_env': 'GITHUB_TOKEN',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '150/day',
+                'quality': 5,
+                'recommended_for': '技術分析',
+                'available': bool(os.getenv('GITHUB_TOKEN'))
+            },
+            
+            # ===== Cloudflare Workers AI (高配額 10,000/day) =====
+            {
+                'id': 'cloudflare_llama_70b',
+                'name': 'Llama 3.3 70B ☁️',
+                'platform': 'Cloudflare',
+                'model_name': '@hf/meta-llama/llama-3.3-70b-instruct',
+                'api_base': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run',
+                'api_key_env': 'CLOUDFLARE_API_KEY',
+                'account_id_env': 'CLOUDFLARE_ACCOUNT_ID',
+                'category': 'fast',
+                'speed': '3-6s',
+                'quota': '10,000/day',
+                'quality': 5,
+                'recommended_for': '高配額分析',
+                'available': bool(os.getenv('CLOUDFLARE_API_KEY') and os.getenv('CLOUDFLARE_ACCOUNT_ID'))
+            },
+            {
+                'id': 'cloudflare_llama_8b',
+                'name': 'Llama 3.1 8B',
+                'platform': 'Cloudflare',
+                'model_name': '@hf/meta-llama/llama-3.1-8b-instruct',
+                'api_base': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run',
+                'api_key_env': 'CLOUDFLARE_API_KEY',
+                'account_id_env': 'CLOUDFLARE_ACCOUNT_ID',
+                'category': 'fast',
+                'speed': '1-3s',
+                'quota': '10,000/day',
+                'quality': 4,
+                'recommended_for': '快速分析',
+                'available': bool(os.getenv('CLOUDFLARE_API_KEY') and os.getenv('CLOUDFLARE_ACCOUNT_ID'))
+            },
+            {
+                'id': 'cloudflare_qwen3_coder',
+                'name': 'Qwen3 Coder 7B',
+                'platform': 'Cloudflare',
+                'model_name': '@hf/qwen/qwen3-coder-7b-instruct',
+                'api_base': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run',
+                'api_key_env': 'CLOUDFLARE_API_KEY',
+                'account_id_env': 'CLOUDFLARE_ACCOUNT_ID',
+                'category': 'fast',
+                'speed': '2-4s',
+                'quota': '10,000/day',
+                'quality': 4,
+                'recommended_for': '技術分析',
+                'available': bool(os.getenv('CLOUDFLARE_API_KEY') and os.getenv('CLOUDFLARE_ACCOUNT_ID'))
+            },
+            {
+                'id': 'cloudflare_deepseek_7b',
+                'name': 'DeepSeek 7B Coder',
+                'platform': 'Cloudflare',
+                'model_name': '@hf/deepseek-ai/deepseek-coder-6.7b-instruct',
+                'api_base': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run',
+                'api_key_env': 'CLOUDFLARE_API_KEY',
+                'account_id_env': 'CLOUDFLARE_ACCOUNT_ID',
+                'category': 'fast',
+                'speed': '1-3s',
+                'quota': '10,000/day',
+                'quality': 4,
+                'recommended_for': '程式分析',
+                'available': bool(os.getenv('CLOUDFLARE_API_KEY') and os.getenv('CLOUDFLARE_ACCOUNT_ID'))
+            },
         ]
     
     def add_observer(self, callback):
@@ -280,7 +414,13 @@ class ModelConfigManager:
         # 重新檢查可用性
         for model in self.available_models:
             api_key_env = model['api_key_env']
-            model['available'] = bool(os.getenv(api_key_env))
+            
+            # Cloudflare 需要兩個 key
+            if 'account_id_env' in model:
+                account_id_env = model['account_id_env']
+                model['available'] = bool(os.getenv(api_key_env) and os.getenv(account_id_env))
+            else:
+                model['available'] = bool(os.getenv(api_key_env))
         
         return self.available_models
     
