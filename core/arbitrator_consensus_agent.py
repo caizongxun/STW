@@ -24,6 +24,7 @@
   - 多時間框架: 15m (主) + 1h + 4h 看大趨勢
   - 逆勢操作: 允許在信心度高時做 1h 內逆勢
   - 交易審核: 基於信心度和市場狀況最終核准
+  - 強健 JSON 解析: 自動修復各種格式錯誤
 
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
@@ -36,6 +37,7 @@
 修復：
   - Payload Too Large: 減少歷史 K 棒數量 (20->10)
   - Circular Reference: 移除 analysis_detail 循環引用
+  - JSON 解析錯誤: 使用強健解析器自動修復
 """
 import json
 import time
@@ -44,6 +46,14 @@ from typing import Dict, Optional, List, Tuple
 import requests
 from datetime import datetime
 from pathlib import Path
+
+# 導入強健 JSON 解析器
+try:
+    from core.json_parser_robust import parse_trading_decision
+    HAS_ROBUST_PARSER = True
+except ImportError:
+    HAS_ROBUST_PARSER = False
+    print("[WARNING] 強健 JSON 解析器不可用，使用基礎解析")
 
 
 class ModelInterface:
@@ -406,6 +416,7 @@ class ArbitratorConsensusAgent:
         print(f"  Model B: {1 if self.primary_model_b else 0} 主力 + {len(self.backup_models_b)} 備用")
         print(f"  仲裁者: {len(self.arbitrator_candidates)} 候選人")
         print(f"  執行審核員: {'Enabled' if self.trading_executor else 'Disabled'}")
+        print(f"  JSON 解析: {'Robust Parser' if HAS_ROBUST_PARSER else 'Basic Parser'}")
         
         print("\n[STRATEGY] 策略: 三階段決策流程")
         print("  階段1: 兩個快速模型分析 (Model A + Model B)")
@@ -424,6 +435,8 @@ class ArbitratorConsensusAgent:
         print("  多時間框架: 15m (主) + 1h + 4h 分析")
         print("  逆勢操作: 允許在 1h 內高信心度逆勢")
         print("  Payload 優化: 歷史 K 棒減少 (20->10)")
+        if HAS_ROBUST_PARSER:
+            print("  JSON 解析: 自動修復 Markdown/單引號/格式錯誤")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
@@ -780,21 +793,28 @@ class ArbitratorConsensusAgent:
         return system_prompt, user_prompt
     
     def _parse_decision(self, content: str) -> Dict:
-        try:
-            if '{' in content and '}' in content:
-                start = content.index('{')
-                end = content.rindex('}') + 1
-                decision = json.loads(content[start:end])
-                if 'is_counter_trend' not in decision:
-                    decision['is_counter_trend'] = False
-                return decision
-        except:
-            pass
-        return {
-            'action': 'HOLD', 'confidence': 30, 'leverage': 1, 'position_size_usdt': 0,
-            'entry_price': 0, 'stop_loss': 0, 'take_profit': 0,
-            'reasoning': '解析失敗', 'risk_assessment': 'HIGH', 'is_counter_trend': False
-        }
+        """解析模型輸出為決策字典"""
+        if HAS_ROBUST_PARSER:
+            # 使用強健解析器
+            return parse_trading_decision(content)
+        else:
+            # 備用: 基礎解析
+            try:
+                if '{' in content and '}' in content:
+                    start = content.index('{')
+                    end = content.rindex('}') + 1
+                    decision = json.loads(content[start:end])
+                    if 'is_counter_trend' not in decision:
+                        decision['is_counter_trend'] = False
+                    return decision
+            except:
+                pass
+            
+            return {
+                'action': 'HOLD', 'confidence': 30, 'leverage': 1, 'position_size_usdt': 0,
+                'entry_price': 0, 'stop_loss': 0, 'take_profit': 0,
+                'reasoning': '解析失敗', 'risk_assessment': 'HIGH', 'is_counter_trend': False
+            }
     
     def _emergency_hold(self) -> Dict:
         return {
