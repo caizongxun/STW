@@ -1,13 +1,24 @@
 """
 市場特徵提取工具
 將 K 線數據轉換為 AI 所需的 40+ 技術指標
+修復: 添加 symbol 參數支持
 """
 import pandas as pd
 import talib
 
 
-def prepare_market_features(row, df):
-    """將 DataFrame 的一行轉換為 DeepSeek 需要的格式（強化版：40+指標）"""
+def prepare_market_features(row, df, symbol='UNKNOWN'):
+    """
+    將 DataFrame 的一行轉換為 DeepSeek 需要的格式（強化版：40+指標）
+    
+    Args:
+        row: DataFrame 的一行數據
+        df: 完整的 DataFrame
+        symbol: 交易對符號 (例如 'BTCUSDT')
+    
+    Returns:
+        dict: 包含所有市場特徵的字典
+    """
     # 計算技術指標
     close = df['close'].values
     high = df['high'].values
@@ -53,7 +64,7 @@ def prepare_market_features(row, df):
     support = pivot - (high[idx] - low[idx])
     
     return {
-        'symbol': row.get('symbol', 'UNKNOWN'),
+        'symbol': symbol,  # 使用傳入的 symbol 參數
         'close': float(row['close']),
         
         # 趋勢
