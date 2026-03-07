@@ -1,16 +1,20 @@
 """
-兩階段仲裁決策系統 - AI 競賽優化版
+兩階段仲裁決策系統 - 多平台備援版
 
 階段 1: 兩個快速模型獨立分析
   - Model A: Llama 3.3 70B (Groq) 或 DeepSeek R1 (OpenRouter)
   - Model B: DeepSeek V3 (OpenRouter) 或 Gemini 2.0 Flash
 
-階段 2: 仲裁者模型最終決策
-  - Llama 3.1 405B (OpenRouter) - 最強免費模型
+階段 2: 仲裁者模型最終決策（多平台備援）
+  1. 優先: Gemini 2.0 Flash Thinking (Google) - 免費推理模型
+  2. 備用 1: Llama 3.3 70B (Groq) - 速度極快
+  3. 備用 2: DeepSeek R1 (OpenRouter) - 推理能力強
+  4. 備用 3: Llama 3.1 405B (OpenRouter) - 最強免費模型
 
 新增：
 - 決策歷史記錄（避免重複下單）
 - 自動保存到 decision_history.json
+- 多平台 API 備援機制
 """
 import json
 import time
@@ -119,7 +123,7 @@ class GeminiModel(ModelInterface):
 
 class ArbitratorConsensusAgent:
     """
-    兩階段仲裁決策引擎 + 決策歷史記錄
+    兩階段仲裁決策引擎 + 決策歷史記錄 + 多平台備援
     用於 AI 競賽，平衡交易機會與準確性
     全部使用免費模型
     """
@@ -127,7 +131,7 @@ class ArbitratorConsensusAgent:
     def __init__(self):
         self.fast_model_a = None
         self.fast_model_b = None
-        self.arbitrator = None
+        self.arbitrator_candidates = []  # 仲裁者候選人
         
         self.decision_history: List[Dict] = []
         self.arbitration_count = 0
@@ -191,7 +195,7 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("🏆 兩階段仲裁決策系統啟動 (全部免費模型)")
+        print("🏆 兩階段仲裁決策系統啟動 (全部免費模型 + 多平台備援)")
         print("="*70)
         
         # Fast Model A: 優先 Groq Llama 70B，備用 OpenRouter DeepSeek R1
@@ -218,7 +222,7 @@ class ArbitratorConsensusAgent:
                 name='DeepSeek_V3',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-chat'
+                model='deepseek/deepseek-chat:free'
             )
             print("✅ 快速模型 B: DeepSeek V3 (OpenRouter) - 通用強")
         elif os.getenv('GROQ_API_KEY'):
@@ -238,23 +242,64 @@ class ArbitratorConsensusAgent:
             )
             print("✅ 快速模型 B: Gemini 2.0 Flash (Google) - 備用")
         
-        # Arbitrator: Llama 3.1 405B (OpenRouter 免費最強)
+        # 仲裁者候選人（按優先度排序）
+        print("\n🧠 仲裁者候選人（按優先度）：")
+        
+        # 1. Gemini 2.0 Flash Thinking (Google) - 免費推理模型
+        if os.getenv('GOOGLE_API_KEY'):
+            candidate = GeminiModel(
+                name='Gemini_Thinking',
+                api_key=os.getenv('GOOGLE_API_KEY'),
+                base_url='',
+                model='gemini-2.0-flash-thinking-exp'
+            )
+            self.arbitrator_candidates.append(candidate)
+            print("✅ 1. Gemini 2.0 Flash Thinking (Google) - 免費推理模型")
+        
+        # 2. Llama 3.3 70B (Groq) - 速度極快
+        if os.getenv('GROQ_API_KEY'):
+            candidate = OpenAICompatibleModel(
+                name='Llama_70B_Arbitrator',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='llama-3.3-70b-versatile'
+            )
+            self.arbitrator_candidates.append(candidate)
+            print("✅ 2. Llama 3.3 70B (Groq) - 速度極快")
+        
+        # 3. DeepSeek R1 (OpenRouter) - 推理能力強
         if os.getenv('OPENROUTER_API_KEY'):
-            self.arbitrator = OpenAICompatibleModel(
+            candidate = OpenAICompatibleModel(
+                name='DeepSeek_R1_Arbitrator',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1:free'
+            )
+            self.arbitrator_candidates.append(candidate)
+            print("✅ 3. DeepSeek R1 (OpenRouter) - 推理能力強")
+        
+        # 4. Llama 3.1 405B (OpenRouter) - 最強免費模型（但可能不穩）
+        if os.getenv('OPENROUTER_API_KEY'):
+            candidate = OpenAICompatibleModel(
                 name='Llama_405B_Arbitrator',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
                 model='meta-llama/llama-3.1-405b-instruct:free'
             )
-            print("✅ 仲裁者: Llama 3.1 405B (OpenRouter) - 免費最強")
+            self.arbitrator_candidates.append(candidate)
+            print("✅ 4. Llama 3.1 405B (OpenRouter) - 最強免費模型（備用）")
         
         # 如果沒有任何模型，顯示警告
         if not self.fast_model_a and not self.fast_model_b:
             print("⚠️  警告: 沒有配置任何 API Key")
             print("    請設定 OPENROUTER_API_KEY 或 GROQ_API_KEY")
         
-        print("\n💡 策略: 兩個快速模型分析 → 同意則執行，分歧則由 405B 仲裁")
-        print("🆓 全部免費: OpenRouter (20 req/min, 200 req/day)")
+        if not self.arbitrator_candidates:
+            print("⚠️  警告: 沒有任何仲裁者候選人")
+        
+        print("\n💡 策略: 兩個快速模型分析 → 同意則執行，分歧則由仲裁者仲裁")
+        print("🌍 多平台備援: Gemini (Google) / Groq / OpenRouter")
+        print("🆓 全部免費: 每天約 200+ 次請求")
         print("📝 決策歷史：自動記錄至 decision_history.json")
         print("="*70 + "\n")
     
@@ -329,7 +374,7 @@ class ArbitratorConsensusAgent:
                 # 分歧，需要仲裁
                 print("\n" + "━"*70)
                 print(f"⚠️ 意見分歧: {decision_a['action']} vs {decision_b['action']}")
-                print("🧠 階段 2: 調用仲裁者 (Llama 405B)")
+                print("🧠 階段 2: 調用仲裁者 (多平台備援)")
                 print("━"*70)
                 
                 self.arbitration_count += 1
@@ -392,9 +437,9 @@ class ArbitratorConsensusAgent:
         successful_cases: Optional[List[Dict]],
         recent_decisions: List[Dict]
     ) -> Dict:
-        """仲裁者模型決策"""
+        """仲裁者模型決策（多平台備援）"""
         
-        if not self.arbitrator:
+        if not self.arbitrator_candidates:
             print("⚠️ 仲裁者未配置，選擇信心度較高的模型")
             if decision_a['confidence'] >= decision_b['confidence']:
                 return decision_a
@@ -472,20 +517,27 @@ class ArbitratorConsensusAgent:
         
         arbitrator_user_prompt = "\n".join(user_prompt_parts)
         
-        print(f"\n🧠 [{self.arbitrator.name}] 仲裁中...")
-        result = self.arbitrator.analyze(arbitrator_system_prompt, arbitrator_user_prompt)
-        
-        if result['success']:
-            final_decision = self._parse_decision(result['content'])
-            print(f"✅ 仲裁完成: {final_decision['action']} (信心度 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
-            return final_decision
-        else:
-            print(f"❌ 仲裁失敗: {result.get('error', 'Unknown')[:100]}")
-            print("⚠️ 選擇信心度較高的模型")
-            if decision_a['confidence'] >= decision_b['confidence']:
-                return decision_a
+        # 依次嘗試仲裁者候選人
+        for idx, arbitrator in enumerate(self.arbitrator_candidates):
+            print(f"\n🧠 [{arbitrator.name}] 仲裁中...")
+            result = arbitrator.analyze(arbitrator_system_prompt, arbitrator_user_prompt)
+            
+            if result['success']:
+                final_decision = self._parse_decision(result['content'])
+                print(f"✅ 仲裁完成: {final_decision['action']} (信心度 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
+                return final_decision
             else:
-                return decision_b
+                print(f"❌ 仲裁失敗: {result.get('error', 'Unknown')[:100]}")
+                if idx < len(self.arbitrator_candidates) - 1:
+                    print(f"➡️ 嘗試下一個仲裁者...")
+                    time.sleep(1)
+        
+        # 所有仲裁者都失敗，選擇信心度較高的模型
+        print("\n⚠️ 所有仲裁者都失敗，選擇信心度較高的模型")
+        if decision_a['confidence'] >= decision_b['confidence']:
+            return decision_a
+        else:
+            return decision_b
     
     def _merge_agreements(self, decision_a: Dict, decision_b: Dict) -> Dict:
         """合併兩個同意的決策"""
@@ -523,9 +575,9 @@ class ArbitratorConsensusAgent:
 
 分析時請重點關注：
 - K 線型態（錘子、十字星、包含線、影線長度）
-- 趋勡反轉訊號（連續上漲/下跌後的轉折）
+- 趨勢反轉訊號（連續上漲/下跌後的轉折）
 - 量能變化（放量/縮量）
-- 支撐/壔力位置
+- 支撑/壓力位置
 - 過去成功案例的經驗
 
 輸出 JSON 格式:
