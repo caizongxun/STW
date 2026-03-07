@@ -51,12 +51,12 @@ class ModelSelector {
 
         container.innerHTML = `
             <div class="model-selector-panel">
-                <h3>🤖 模型選擇器</h3>
+                <h3>模型選擇器</h3>
                 
                 <!-- Model A -->
                 <div class="model-select-group">
                     <label for="model-a-select">
-                        <span class="model-label">🎯 Model A (快速模型)</span>
+                        <span class="model-label">Model A (快速模型)</span>
                     </label>
                     <select id="model-a-select" class="model-select">
                         <option value="">請選擇...</option>
@@ -68,7 +68,7 @@ class ModelSelector {
                 <!-- Model B -->
                 <div class="model-select-group">
                     <label for="model-b-select">
-                        <span class="model-label">🎯 Model B (快速模型)</span>
+                        <span class="model-label">Model B (快速模型)</span>
                     </label>
                     <select id="model-b-select" class="model-select">
                         <option value="">請選擇...</option>
@@ -80,7 +80,7 @@ class ModelSelector {
                 <!-- 仲裁者 -->
                 <div class="model-select-group">
                     <label for="arbitrator-select">
-                        <span class="model-label">🧠 仲裁者 (決策模型)</span>
+                        <span class="model-label">仲裁者 (決策模型)</span>
                     </label>
                     <select id="arbitrator-select" class="model-select">
                         <option value="">請選擇...</option>
@@ -92,10 +92,10 @@ class ModelSelector {
                 <!-- 按鈕 -->
                 <div class="model-select-actions">
                     <button id="save-model-config" class="btn btn-primary">
-                        💾 保存配置
+                        保存配置
                     </button>
                     <button id="reset-model-config" class="btn btn-secondary">
-                        🔄 重置為預設
+                        重置為預設
                     </button>
                 </div>
 
@@ -173,12 +173,13 @@ class ModelSelector {
         if (!model) return;
 
         const infoDiv = document.getElementById(`${target}-info`);
+        const stars = '⭐'.repeat(model.quality);
         infoDiv.innerHTML = `
             <div class="model-details">
                 <span class="badge badge-${model.platform.toLowerCase()}">${model.platform}</span>
                 <span class="model-speed">速度: ${model.speed}</span>
                 <span class="model-quota">額度: ${model.quota}</span>
-                <span class="model-quality">品質: ${'⭐'.repeat(model.quality)}</span>
+                <span class="model-quality">品質: ${stars}</span>
             </div>
         `;
     }
@@ -189,7 +190,7 @@ class ModelSelector {
         const arbitrator = document.getElementById('arbitrator-select').value;
 
         if (!modelA || !modelB || !arbitrator) {
-            this.showStatus('⚠️ 請選擇所有模型', 'warning');
+            this.showStatus('請選擇所有模型', 'warning');
             return;
         }
 
@@ -206,17 +207,17 @@ class ModelSelector {
 
             const data = await response.json();
             if (data.success) {
-                this.showStatus('✅ 配置已保存，重新啟動後生效', 'success');
+                this.showStatus('配置已保存，重新啟動後生效', 'success');
                 this.currentConfig = {
                     model_a: modelA,
                     model_b: modelB,
                     arbitrator: arbitrator
                 };
             } else {
-                this.showStatus('❌ 保存失敗: ' + data.error, 'error');
+                this.showStatus('保存失敗: ' + data.error, 'error');
             }
         } catch (error) {
-            this.showStatus('❌ 保存失敗: ' + error.message, 'error');
+            this.showStatus('保存失敗: ' + error.message, 'error');
         }
     }
 
@@ -230,12 +231,12 @@ class ModelSelector {
 
             const data = await response.json();
             if (data.success) {
-                this.showStatus('✅ 已重置為預設配置', 'success');
+                this.showStatus('已重置為預設配置', 'success');
                 await this.loadCurrentConfig();
                 this.setCurrentValues();
             }
         } catch (error) {
-            this.showStatus('❌ 重置失敗: ' + error.message, 'error');
+            this.showStatus('重置失敗: ' + error.message, 'error');
         }
     }
 
