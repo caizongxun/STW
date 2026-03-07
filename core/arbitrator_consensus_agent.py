@@ -21,10 +21,11 @@
   - 熱更新: 修改配置後自動重新載入模型
   - 自定義優先序: 在 Web UI 調整模型順序
   - 詳細記錄: 記錄每次 prompt 和模型完整回應 (raw_content)
-  - 多時間框架: 15m (主) + 1h + 4h 看大趨勢
+  - 多時間框架: 15m (主) + 1h + 4h 看大趋勢
   - 逆勢操作: 允許在信心度高時做 1h 內逆勢
   - 交易審核: 基於信心度和市場狀況最終核准
   - 強健 JSON 解析: 自動修復各種格式錯誤
+  - Gemini API 超時保護: 60秒超時 + 重試機制
 
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
@@ -39,6 +40,7 @@
   - Circular Reference: 移除 analysis_detail 循環引用
   - JSON 解析錯誤: 使用強健解析器自動修復
   - AttributeError: 修正 trading_executor 初始化順序
+  - Gemini API 卡住: 添加超時保護 + 重試 + 更好的錯誤處理
 """
 import json
 import time
@@ -120,37 +122,101 @@ class OpenAICompatibleModel(ModelInterface):
 
 
 class GeminiModel(ModelInterface):
-    def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
-        try:
-            import google.generativeai as genai
+    """
+    Gemini 模型封裝
+    修復: 添加超時保護 + 重試機制 + 更詳細的錯誤處理
+    """
+    def analyze(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> Dict:
+        for attempt in range(max_retries):
+            try:
+                import google.generativeai as genai
+                
+                genai.configure(api_key=self.api_key)
+                model = genai.GenerativeModel(self.model)
+                
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                start_time = time.time()
+                
+                # 使用 generate_content 並設定超時
+                try:
+                    response = model.generate_content(
+                        full_prompt,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.2,
+                            max_output_tokens=4000
+                        ),
+                        request_options={'timeout': 60}  # 60秒超時
+                    )
+                    elapsed = time.time() - start_time
+                    
+                    # 檢查回應是否有效
+                    if not response or not response.text:
+                        raise Exception("Gemini API returned empty response")
+                    
+                    return {
+                        'success': True,
+                        'content': response.text,
+                        'model': self.model,
+                        'elapsed_time': elapsed
+                    }
+                
+                except Exception as api_error:
+                    error_str = str(api_error)
+                    
+                    # 特定錯誤處理
+                    if 'timeout' in error_str.lower() or 'timed out' in error_str.lower():
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 2  # 2s, 4s
+                            print(f"[RETRY] Gemini API 超時，{wait_time}秒後重試... (Attempt {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            raise Exception(f"Gemini API timeout after {max_retries} retries")
+                    
+                    elif 'rate limit' in error_str.lower() or '429' in error_str:
+                        if attempt < max_retries - 1:
+                            print(f"[RETRY] Gemini API 速率限制，5秒後重試...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            raise Exception("Gemini API rate limit exceeded")
+                    
+                    elif 'safety' in error_str.lower():
+                        raise Exception("Gemini API safety filter triggered")
+                    
+                    else:
+                        # 其他錯誤直接拋出
+                        raise api_error
             
-            genai.configure(api_key=self.api_key)
-            model = genai.GenerativeModel(self.model)
+            except ImportError:
+                return {
+                    'success': False,
+                    'error': 'google-generativeai 套件未安裝，請執行: pip install google-generativeai',
+                    'model': self.model,
+                    'elapsed_time': 0
+                }
             
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            start_time = time.time()
-            response = model.generate_content(
-                full_prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.2,
-                    max_output_tokens=4000
-                )
-            )
-            elapsed = time.time() - start_time
-            
-            return {
-                'success': True,
-                'content': response.text,
-                'model': self.model,
-                'elapsed_time': elapsed
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'model': self.model,
-                'elapsed_time': 0
-            }
+            except Exception as e:
+                error_msg = str(e)
+                elapsed = time.time() - start_time if 'start_time' in locals() else 0
+                
+                # 最後一次嘗試失敗，返回錯誤
+                if attempt == max_retries - 1:
+                    print(f"[FAIL] Gemini API 所有重試失敗: {error_msg[:150]}")
+                    return {
+                        'success': False,
+                        'error': error_msg,
+                        'model': self.model,
+                        'elapsed_time': elapsed
+                    }
+        
+        # 理論上不會執行到這裡
+        return {
+            'success': False,
+            'error': 'Unknown error in Gemini API',
+            'model': self.model,
+            'elapsed_time': 0
+        }
 
 
 class ArbitratorConsensusAgent:
@@ -439,6 +505,7 @@ class ArbitratorConsensusAgent:
         print("  Payload 優化: 歷史 K 棒減少 (20->10)")
         if HAS_ROBUST_PARSER:
             print("  JSON 解析: 自動修復 Markdown/單引號/格式錯誤")
+        print("  Gemini API: 60s 超時 + 自動重試")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
@@ -477,6 +544,8 @@ class ArbitratorConsensusAgent:
         
         print(f"\n[FAIL] {label} 所有模型都失敗")
         return None, None
+    
+    # ... (其他方法保持不變,太長省略)
     
     def analyze_with_arbitration(
         self,
@@ -652,6 +721,8 @@ class ArbitratorConsensusAgent:
         
         return final_decision
     
+    # ... (其他方法保持原樣)
+    
     def _arbitrate(
         self,
         market_data: Dict,
@@ -748,14 +819,14 @@ class ArbitratorConsensusAgent:
 1. 分析當前市場數據、歷史 K 棒走勢、技術指標
 2. 參考最近決策結果，避免重複操作
 3. 學習成功案例的模式
-4. 結合多時間框架 (15m + 1h + 4h) 看清大趨勢
+4. 結合多時間框架 (15m + 1h + 4h) 看清大趋勢
 5. 給出明確的交易建議
 
 重要原則:
 - 避免重複下單、矛盾操作、頻繁交易
 - 不要在持有多單時再次 OPEN_LONG
 - 不要在沒有持倉時 CLOSE
-- 主時間框架為 15分鐘，但要參考 1h 和 4h 趨勢
+- 主時間框架為 15分鐘，但要參考 1h 和 4h 趋勢
 - 允許逆勢操作：在信心度高 (>75%) 且技術指標強勁時，可以在 1小時內 做 15分鐘的逆勢操作
 
 輸出 JSON 格式:
