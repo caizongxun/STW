@@ -1,7 +1,7 @@
 """
 多 API 管理器
 支持多個免費 API 輪換使用，自動故障轉移
-更新為 2026 年可用模型
+更新為 2026 年可用模型 + DeepSeek R1
 """
 import os
 import time
@@ -98,10 +98,79 @@ class MultiAPIManager:
     def _setup_default_providers(self):
         """
         設置預設 API 提供商
-        使用 2026 年可用的模型
+        使用 2026 年可用的模型 + DeepSeek R1
         """
         
-        # 1. Groq - 使用 Llama 3.3 70B (速度快，免費額度高)
+        # 0. DeepSeek 官方 API - R1 (極便宜，但需要付費)
+        if os.getenv('DEEPSEEK_API_KEY'):
+            self.providers.append(APIProvider(
+                name='DeepSeek_R1_Official',
+                api_key=os.getenv('DEEPSEEK_API_KEY'),
+                base_url='https://api.deepseek.com/v1',
+                model='deepseek-reasoner',  # R1 推理模型
+                rpm_limit=60,
+                daily_limit=50000,  # 充值後大量額度
+                priority=5  # 最高優先級
+            ))
+        
+        # 1. OpenRouter - DeepSeek R1 (2026 免費版本)
+        if os.getenv('OPENROUTER_API_KEY'):
+            # OpenRouter - DeepSeek R1 0528 (free) - 最新版本
+            self.providers.append(APIProvider(
+                name='OpenRouter_R1_0528_Free',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1-0528:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=5  # 最高優先級 (免費 R1)
+            ))
+            
+            # OpenRouter - DeepSeek R1 (free) - 原始版本
+            self.providers.append(APIProvider(
+                name='OpenRouter_R1_Free',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=5
+            ))
+            
+            # OpenRouter - Gemini 2.0 Flash (免費，1M context)
+            self.providers.append(APIProvider(
+                name='OpenRouter_Gemini_2_Flash',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='google/gemini-2.0-flash-exp:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=4
+            ))
+            
+            # OpenRouter - Qwen3 32B (免費)
+            self.providers.append(APIProvider(
+                name='OpenRouter_Qwen3_32B',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='qwen/qwen3-32b:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=4
+            ))
+            
+            # OpenRouter - Mistral Small 3.1 (免費)
+            self.providers.append(APIProvider(
+                name='OpenRouter_Mistral_Small',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='mistralai/mistral-small-3.1:free',
+                rpm_limit=20,
+                daily_limit=200,
+                priority=3
+            ))
+        
+        # 2. Groq - 使用 Llama 3.3 70B (速度快，免費額度高)
         if os.getenv('GROQ_API_KEY'):
             self.providers.append(APIProvider(
                 name='Groq_Llama_3_3_70B',
@@ -124,41 +193,6 @@ class MultiAPIManager:
                 priority=4
             ))
         
-        # 2. OpenRouter - 使用免費模型
-        if os.getenv('OPENROUTER_API_KEY'):
-            # OpenRouter - Gemini 2.0 Flash (免費，1M context)
-            self.providers.append(APIProvider(
-                name='OpenRouter_Gemini_2_Flash',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='google/gemini-2.0-flash-exp:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=5  # 高優先級
-            ))
-            
-            # OpenRouter - Qwen3 32B (免費)
-            self.providers.append(APIProvider(
-                name='OpenRouter_Qwen3_32B',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='qwen/qwen3-32b:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=4
-            ))
-            
-            # OpenRouter - Mistral Small 3.1 (免費)
-            self.providers.append(APIProvider(
-                name='OpenRouter_Mistral_Small',
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                model='mistralai/mistral-small-3.1:free',
-                rpm_limit=20,
-                daily_limit=200,
-                priority=4
-            ))
-        
         # 3. Google Gemini - Gemini 2.0 Flash
         if os.getenv('GOOGLE_API_KEY'):
             self.providers.append(APIProvider(
@@ -168,7 +202,7 @@ class MultiAPIManager:
                 model='gemini-2.0-flash',  # 使用穩定版本
                 rpm_limit=15,
                 daily_limit=1500,
-                priority=5  # 高優先級
+                priority=4
             ))
         
         # 4. GitHub Models - GPT-4o-mini
@@ -183,7 +217,19 @@ class MultiAPIManager:
                 priority=4
             ))
         
-        # 5. Cloudflare Workers AI - Llama 3.1
+        # 5. Scaleway - DeepSeek R1 Distill Llama 70B (免費)
+        if os.getenv('SCALEWAY_API_KEY'):
+            self.providers.append(APIProvider(
+                name='Scaleway_R1_Distill',
+                api_key=os.getenv('SCALEWAY_API_KEY'),
+                base_url='https://api.scaleway.ai/v1',
+                model='deepseek-r1-distill-llama-70b',
+                rpm_limit=20,
+                daily_limit=1000,
+                priority=5  # 高優先級 (免費 R1)
+            ))
+        
+        # 6. Cloudflare Workers AI - Llama 3.1
         cf_account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
         cf_api_key = os.getenv('CLOUDFLARE_API_KEY')
         if cf_account_id and cf_api_key:
@@ -197,9 +243,10 @@ class MultiAPIManager:
                 priority=3
             ))
         
-        print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商 (2026 可用模型)")
+        print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商 (2026 可用模型 + DeepSeek R1)")
         for p in self.providers:
-            print(f"  - {p.name}: {p.model} (優先級 {p.priority})")
+            r1_mark = " [R1]" if 'r1' in p.model.lower() or 'reasoner' in p.model.lower() else ""
+            print(f"  - {p.name}: {p.model}{r1_mark} (優先級 {p.priority})")
     
     def get_available_provider(self, purpose: str = 'general') -> Optional[APIProvider]:
         """
@@ -211,8 +258,8 @@ class MultiAPIManager:
         # 根據用途選擇優先級
         priority_map = {
             'fast': ['Groq_Llama_3_3_70B', 'Cloudflare_Llama_3_1'],
-            'reasoning': ['Google_Gemini_2_Flash', 'OpenRouter_Gemini_2_Flash', 'Groq_Llama_3_3_70B'],
-            'position': ['Groq_Llama_3_3_70B', 'Google_Gemini_2_Flash'],
+            'reasoning': ['OpenRouter_R1_0528_Free', 'OpenRouter_R1_Free', 'DeepSeek_R1_Official', 'Scaleway_R1_Distill', 'Google_Gemini_2_Flash'],
+            'position': ['OpenRouter_R1_0528_Free', 'Groq_Llama_3_3_70B', 'Google_Gemini_2_Flash'],
             'general': None
         }
         
