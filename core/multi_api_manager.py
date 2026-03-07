@@ -12,7 +12,7 @@ import json
 
 @dataclass
 class APIProvider:
-    """API 提供商配置"""
+    """一個 API 提供商配置"""
     name: str
     api_key: str
     base_url: str
@@ -90,12 +90,12 @@ class MultiAPIManager:
         self.providers: List[APIProvider] = []
         self.load_config()
         
-        # 如果沒有配置，使用默認配置
+        # 如果沒有配置，使用預設配置
         if not self.providers:
             self._setup_default_providers()
     
     def _setup_default_providers(self):
-        """設置默認 API 提供商"""
+        """設置預設 API 提供商"""
         
         # Groq - 速度最快，適合即時分析
         if os.getenv('GROQ_API_KEY'):
@@ -117,7 +117,7 @@ class MultiAPIManager:
                 base_url='https://openrouter.ai/api/v1',
                 model='deepseek/deepseek-r1:free',
                 rpm_limit=20,
-                daily_limit=1000,  # 有 $10 credits 的情況
+                daily_limit=1000,
                 priority=4  # 推理能力強
             ))
             
@@ -132,16 +132,16 @@ class MultiAPIManager:
                 priority=4
             ))
         
-        # Google Gemini - 推理最強
+        # Google Gemini Flash - 高額度免費模型
         if os.getenv('GOOGLE_API_KEY'):
             self.providers.append(APIProvider(
-                name='Google_Gemini',
+                name='Google_Gemini_Flash',
                 api_key=os.getenv('GOOGLE_API_KEY'),
                 base_url='https://generativelanguage.googleapis.com/v1beta',
-                model='gemini-2.5-pro',
+                model='gemini-2.0-flash-exp',  # 改用 Flash，額度更高
                 rpm_limit=15,
-                daily_limit=1500,
-                priority=5  # 最高優先級（推理強）
+                daily_limit=1500,  # Flash 每天 1500 次
+                priority=5  # 最高優先級（推理強 + 速度快）
             ))
         
         # GitHub Models
@@ -157,11 +157,13 @@ class MultiAPIManager:
             ))
         
         # Cloudflare Workers AI
-        if os.getenv('CLOUDFLARE_API_KEY'):
+        cf_account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
+        cf_api_key = os.getenv('CLOUDFLARE_API_KEY')
+        if cf_account_id and cf_api_key:
             self.providers.append(APIProvider(
                 name='Cloudflare',
-                api_key=os.getenv('CLOUDFLARE_API_KEY'),
-                base_url='https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
+                api_key=cf_api_key,
+                base_url=f'https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai/v1',
                 model='@cf/meta/llama-3.1-8b-instruct',
                 rpm_limit=100,
                 daily_limit=10000,
@@ -181,8 +183,8 @@ class MultiAPIManager:
         # 根據用途選擇優先級
         priority_map = {
             'fast': ['Groq', 'Cloudflare'],  # 速度優先
-            'reasoning': ['Google_Gemini', 'OpenRouter_DSR1', 'OpenRouter_R1_Llama'],  # 推理優先
-            'position': ['Groq', 'Google_Gemini'],  # 倉位控制（需要快速+準確）
+            'reasoning': ['Google_Gemini_Flash', 'OpenRouter_DSR1', 'OpenRouter_R1_Llama'],  # 推理優先
+            'position': ['Groq', 'Google_Gemini_Flash'],  # 倉位控制（需要快速+準確）
             'general': None  # 按優先級排序
         }
         
@@ -234,7 +236,7 @@ class MultiAPIManager:
             json.dump(config, f, indent=2, ensure_ascii=False)
     
     def load_config(self):
-        """從文件加載配置"""
+        """從文件載入配置"""
         if not os.path.exists(self.config_file):
             return
         
