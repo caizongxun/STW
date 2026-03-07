@@ -3,13 +3,13 @@
 
 主力配置（方案 B）：
   - Model A: Llama 3.3 70B (Groq) - 第一選擇
-  - Model B: Gemini 2.0 Flash (Google) - 第一選擇
-  - 仲裁者: Gemini 2.0 Flash Thinking (Google)
+  - Model B: Gemini 2.5 Flash (Google) - 修正模型名稱
+  - 仲裁者: Llama 3.3 70B (Groq) - 速度快+穩定
 
 備用機制：
   - Model A 失敗 → Gemini Flash (Google) → Mixtral 8x7B (Groq)
   - Model B 失敗 → Llama 70B (Groq) → Mixtral 8x7B (Groq)
-  - 仲裁者失敗 → Llama 70B (Groq) → Gemini Flash (Google) → DeepSeek R1 (OpenRouter)
+  - 仲裁者失敗 → Gemini Flash (Google) → Mixtral 8x7B (Groq) → DeepSeek R1 (OpenRouter)
 
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
@@ -211,17 +211,17 @@ class ArbitratorConsensusAgent:
             )
             print("✅ 1. Llama 3.3 70B (Groq) - 主力模型")
         
-        # 備用 1: Gemini Flash
+        # 備用 1: Gemini 2.5 Flash (修正模型名稱)
         if os.getenv('GOOGLE_API_KEY'):
             backup = GeminiModel(
                 name='Gemini_Backup_A',
                 api_key=os.getenv('GOOGLE_API_KEY'),
                 base_url='',
-                model='gemini-2.0-flash',
+                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
                 priority=2
             )
             self.backup_models_a.append(backup)
-            print("✅ 2. Gemini 2.0 Flash (Google) - 備用 1")
+            print("✅ 2. Gemini 2.5 Flash (Google) - 備用 1")
         
         # 備用 2: Groq Mixtral
         if os.getenv('GROQ_API_KEY'):
@@ -240,16 +240,16 @@ class ArbitratorConsensusAgent:
         # ====================
         print("\n🤖 快速模型 B (按優先度):")
         
-        # 主力: Gemini Flash
+        # 主力: Gemini 2.5 Flash (修正模型名稱)
         if os.getenv('GOOGLE_API_KEY'):
             self.primary_model_b = GeminiModel(
                 name='Gemini_Primary',
                 api_key=os.getenv('GOOGLE_API_KEY'),
                 base_url='',
-                model='gemini-2.0-flash',
+                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
                 priority=1
             )
-            print("✅ 1. Gemini 2.0 Flash (Google) - 主力模型")
+            print("✅ 1. Gemini 2.5 Flash (Google) - 主力模型")
         
         # 備用 1: Groq Llama 70B
         if os.getenv('GROQ_API_KEY'):
@@ -280,41 +280,41 @@ class ArbitratorConsensusAgent:
         # ====================
         print("\n🧠 仲裁者候選人 (按優先度):")
         
-        # 1. Gemini Thinking
-        if os.getenv('GOOGLE_API_KEY'):
-            candidate = GeminiModel(
-                name='Gemini_Thinking',
-                api_key=os.getenv('GOOGLE_API_KEY'),
-                base_url='',
-                model='gemini-2.0-flash-thinking-exp',
-                priority=1
-            )
-            self.arbitrator_candidates.append(candidate)
-            print("✅ 1. Gemini 2.0 Flash Thinking (Google) - 推理模型")
-        
-        # 2. Groq Llama 70B
+        # 1. Groq Llama 70B (移除錯誤的 thinking 模型)
         if os.getenv('GROQ_API_KEY'):
             candidate = OpenAICompatibleModel(
                 name='Llama_Arbitrator',
                 api_key=os.getenv('GROQ_API_KEY'),
                 base_url='https://api.groq.com/openai/v1',
                 model='llama-3.3-70b-versatile',
-                priority=2
+                priority=1
             )
             self.arbitrator_candidates.append(candidate)
-            print("✅ 2. Llama 3.3 70B (Groq) - 速度快")
+            print("✅ 1. Llama 3.3 70B (Groq) - 速度快")
         
-        # 3. Gemini Flash
+        # 2. Gemini 2.5 Flash
         if os.getenv('GOOGLE_API_KEY'):
             candidate = GeminiModel(
                 name='Gemini_Arbitrator',
                 api_key=os.getenv('GOOGLE_API_KEY'),
                 base_url='',
-                model='gemini-2.0-flash',
+                model='gemini-2.5-flash',  # 修正: 2.5 不是 2.0
+                priority=2
+            )
+            self.arbitrator_candidates.append(candidate)
+            print("✅ 2. Gemini 2.5 Flash (Google) - 穩定")
+        
+        # 3. Groq Mixtral
+        if os.getenv('GROQ_API_KEY'):
+            candidate = OpenAICompatibleModel(
+                name='Mixtral_Arbitrator',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='mixtral-8x7b-32768',
                 priority=3
             )
             self.arbitrator_candidates.append(candidate)
-            print("✅ 3. Gemini 2.0 Flash (Google) - 穩定")
+            print("✅ 3. Mixtral 8x7B (Groq) - 備用")
         
         # 4. DeepSeek R1 (OpenRouter)
         if os.getenv('OPENROUTER_API_KEY'):
