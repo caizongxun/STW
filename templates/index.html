@@ -240,7 +240,7 @@
                     <div class="info-banner">
                         <ul>
                             <li>AI 能讀取當前倉位、本金、浮盈浮虧</li>
-                            <li>根據市場波動度動態調整桶桿 (1-10x)</li>
+                            <li>根據市場波動度動態調整桶杆 (1-10x)</li>
                             <li>支持多種操作：開倉/平倉/加倉/減倉/觀望</li>
                             <li>智能風控：不超過可用餘額的 30%</li>
                         </ul>
@@ -470,6 +470,29 @@
                         </ul>
                     </div>
                     
+                    <h4 style="margin-top: 24px;">🧠 兩階段仲裁決策 (NEW!)</h4>
+                    <div class="info-banner" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                        <p>✨ <strong>兩階段共識決策系統</strong></p>
+                        <ul style="color: rgba(255,255,255,0.9);">
+                            <li><strong>階段 1</strong>: 兩個快速模型 (Groq Llama 70B + Google Gemini 2.0) 同時分析</li>
+                            <li><strong>階段 2</strong>: 如果意見分歧，由第三個最強模型 (Llama 3.3 70B) 仲裁</li>
+                            <li>提高決策穩定性，減少單模型偏差</li>
+                            <li>網頁會顯示每個模型的分析結果</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <strong>啟用兩階段仲裁決策</strong>
+                            <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">推薦</span>
+                        </label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="useArbitratorConsensus">
+                            <label for="useArbitratorConsensus"></label>
+                        </div>
+                        <small class="form-text">啟用後，每次 AI 分析會調用 2-3 個模型進行共識決策</small>
+                    </div>
+                    
                     <h4 style="margin-top: 24px;">AI 設定</h4>
                     <div class="grid-2">
                         <div class="form-group">
@@ -622,5 +645,8 @@
     <script src="{{ url_for('static', filename='js/auto_update.js') }}"></script>
     <script src="{{ url_for('static', filename='js/cases.js') }}"></script>
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+    
+    <!-- 兩階段仲裁 UI -->
+    <script src="{{ url_for('static', filename='js/arbitrator_ui.js') }}"></script>
 </body>
 </html>
