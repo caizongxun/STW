@@ -59,24 +59,11 @@ class ModelConfigManager:
                 'quality': 5,
                 'available': bool(os.getenv('GOOGLE_API_KEY'))
             },
-            {
-                'id': 'google_gemini_thinking',
-                'name': 'Gemini 2.0 Flash Thinking',
-                'platform': 'Google',
-                'model_name': 'gemini-2.0-flash-thinking-exp',
-                'api_base': '',
-                'api_key_env': 'GOOGLE_API_KEY',
-                'category': 'arbitrator',
-                'speed': '5-10s',
-                'quota': '500/day',
-                'quality': 6,
-                'available': bool(os.getenv('GOOGLE_API_KEY'))
-            },
             
             # OpenRouter 模型
             {
                 'id': 'openrouter_deepseek_r1',
-                'name': 'DeepSeek R1',
+                'name': 'DeepSeek R1 14B',
                 'platform': 'OpenRouter',
                 'model_name': 'deepseek/deepseek-r1:free',
                 'api_base': 'https://openrouter.ai/api/v1',
@@ -115,7 +102,7 @@ class ModelConfigManager:
         return {
             'model_a': 'groq_llama_70b',
             'model_b': 'google_gemini_flash',
-            'arbitrator': 'google_gemini_thinking'
+            'arbitrator': 'groq_llama_70b'
         }
     
     def save_config(self, config: Dict) -> bool:
@@ -135,7 +122,7 @@ class ModelConfigManager:
         default_config = {
             'model_a': 'groq_llama_70b',
             'model_b': 'google_gemini_flash',
-            'arbitrator': 'google_gemini_thinking'
+            'arbitrator': 'groq_llama_70b'
         }
         return self.save_config(default_config)
     
