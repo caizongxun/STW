@@ -74,7 +74,13 @@ class PositionAwareDeepSeekAgent:
                 print(f"✅ 使用 Ollama 本地模型: {model_name}")
             except Exception as e:
                 print(f"❌ Ollama 初始化失敗: {e}")
-                raise RuntimeError("沒有可用的 AI 模型，請配置免費 API 或安裝 Ollama")
+        
+        # 檢查是否有任何可用的 AI
+        if not self.api_manager and not self.ollama_model:
+            print("❌ 警告: 沒有可用的 AI 模型！")
+            print("請至少配置一個：")
+            print("  1. 免費 API (設定頁面)")
+            print("  2. Ollama (pip install langchain-ollama && ollama pull deepseek-r1:14b)")
     
     def _call_llm(self, prompt: str, purpose: str = 'position') -> str:
         """調用 LLM（多 API 或 Ollama）"""
@@ -98,6 +104,7 @@ class PositionAwareDeepSeekAgent:
                         response = self._call_openai_compatible(prompt, provider)
                     
                     provider.record_success()
+                    print(f"✅ {provider.name} 請求成功")
                     return response
                     
                 except Exception as e:
@@ -109,9 +116,15 @@ class PositionAwareDeepSeekAgent:
         # 備用: 使用 Ollama
         if self.ollama_model:
             print(f"🤖 使用 Ollama: {self.model_name}")
-            return self.ollama_model.invoke(prompt)
+            try:
+                response = self.ollama_model.invoke(prompt)
+                print("✅ Ollama 請求成功")
+                return response
+            except Exception as e:
+                print(f"❌ Ollama 請求失敗: {e}")
+                raise
         
-        raise RuntimeError("所有 API 都不可用")
+        raise RuntimeError("所有 API 都不可用，且沒有安裝 Ollama")
     
     def _call_llm_fallback(self, prompt: str) -> str:
         """備用 LLM 調用（當首選 API 失敗）"""
@@ -129,16 +142,19 @@ class PositionAwareDeepSeekAgent:
                             response = self._call_openai_compatible(prompt, provider)
                         
                         provider.record_success()
+                        print(f"✅ {provider.name} 備用成功")
                         return response
-                    except:
+                    except Exception as e:
+                        print(f"❌ {provider.name} 備用失敗: {e}")
                         provider.record_failure()
                         continue
         
         # 最後嘗試 Ollama
         if self.ollama_model:
+            print("🔄 所有免費 API 失敗，使用 Ollama")
             return self.ollama_model.invoke(prompt)
         
-        raise RuntimeError("所有 API 都失敗")
+        raise RuntimeError("所有 API 都失敗，且沒有 Ollama")
     
     def _call_gemini(self, prompt: str, provider) -> str:
         """調用 Google Gemini API"""
@@ -175,7 +191,16 @@ class PositionAwareDeepSeekAgent:
         
         url = f"{provider.base_url}/chat/completions"
         
+        print(f"  請求 URL: {url}")
+        print(f"  模型: {provider.model}")
+        
         response = requests.post(url, headers=headers, json=data, timeout=60)
+        
+        # 詳細錯誤資訊
+        if response.status_code != 200:
+            print(f"  狀態碼: {response.status_code}")
+            print(f"  回應: {response.text[:500]}")
+        
         response.raise_for_status()
         
         result = response.json()
@@ -208,7 +233,7 @@ class PositionAwareDeepSeekAgent:
                 
                 # 驗證成功
                 if decision['action'] != 'HOLD' or decision.get('error') is None:
-                    print(f"AI 分析成功: {decision['action']} (信心度 {decision['confidence']}%)")
+                    print(f"✅ AI 分析成功: {decision['action']} (信心度 {decision['confidence']}%)")
                     
                     # 更新狀態
                     self.last_signal = decision['action']
@@ -221,12 +246,15 @@ class PositionAwareDeepSeekAgent:
                 time.sleep(1)
                 
             except Exception as e:
-                print(f"嘗試 {attempt + 1} 失敗: {e}")
+                print(f"❌ 嘗試 {attempt + 1} 失敗: {e}")
+                import traceback
+                traceback.print_exc()
                 if attempt < self.max_retries - 1:
                     time.sleep(1)
                     continue
         
         # 所有嘗試都失敗
+        print("❌ 所有 AI 分析嘗試都失敗")
         return self._get_safe_default()
     
     def _apply_swing_strategy(
