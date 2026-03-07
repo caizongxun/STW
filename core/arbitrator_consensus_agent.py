@@ -8,10 +8,9 @@
 階段 2: 仲裁者模型最終決策
   - Llama 3.1 405B (OpenRouter) - 最強免費模型
 
-優勢:
-1. 全部免費模型，無需信用卡
-2. 多個備用選擇，避免單點失敗
-3. DeepSeek 推理能力強，適合交易分析
+新增：
+- 決策歷史記錄（避免重複下單）
+- 自動保存到 decision_history.json
 """
 import json
 import time
@@ -19,6 +18,7 @@ import os
 from typing import Dict, Optional, List, Tuple
 import requests
 from datetime import datetime
+from pathlib import Path
 
 
 class ModelInterface:
@@ -38,6 +38,11 @@ class OpenAICompatibleModel(ModelInterface):
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json'
         }
+        
+        # OpenRouter 特別需求：增加 referer 和 title
+        if 'openrouter.ai' in self.base_url:
+            headers['HTTP-Referer'] = 'https://github.com/caizongxun/STW'
+            headers['X-Title'] = 'STW Trading Bot'
         
         payload = {
             'model': self.model,
@@ -114,7 +119,7 @@ class GeminiModel(ModelInterface):
 
 class ArbitratorConsensusAgent:
     """
-    兩階段仲裁決策引擎
+    兩階段仲裁決策引擎 + 決策歷史記錄
     用於 AI 競賽，平衡交易機會與準確性
     全部使用免費模型
     """
@@ -128,7 +133,61 @@ class ArbitratorConsensusAgent:
         self.arbitration_count = 0
         self.agreement_count = 0
         
+        # 決策歷史檔案路徑
+        self.history_file = Path('decision_history.json')
+        
+        # 讀取歷史決策
+        self._load_history()
+        
         self._init_models()
+    
+    def _load_history(self):
+        """從檔案讀取歷史決策"""
+        try:
+            if self.history_file.exists():
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.decision_history = data.get('decisions', [])
+                    print(f"📝 讀取 {len(self.decision_history)} 筆歷史決策")
+        except Exception as e:
+            print(f"⚠️ 讀取歷史失敗: {e}")
+            self.decision_history = []
+    
+    def _save_history(self):
+        """保存歷史決策到檔案"""
+        try:
+            # 只保存最近 100 筆
+            recent_decisions = self.decision_history[-100:]
+            
+            data = {
+                'last_updated': datetime.now().isoformat(),
+                'total_decisions': len(self.decision_history),
+                'decisions': recent_decisions
+            }
+            
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+        except Exception as e:
+            print(f"⚠️ 保存歷史失敗: {e}")
+    
+    def _get_recent_decisions(self, limit=5) -> List[Dict]:
+        """獲取最近的 N 筆決策"""
+        if not self.decision_history:
+            return []
+        
+        recent = []
+        for record in reversed(self.decision_history[-limit:]):
+            final = record.get('final', {})
+            recent.append({
+                'datetime': record.get('datetime', ''),
+                'action': final.get('action', 'UNKNOWN'),
+                'confidence': final.get('confidence', 0),
+                'reasoning': final.get('reasoning', '')[:100],
+                'arbitration': record.get('needed_arbitration', False)
+            })
+        
+        return recent
     
     def _init_models(self):
         print("\n" + "="*70)
@@ -159,7 +218,7 @@ class ArbitratorConsensusAgent:
                 name='DeepSeek_V3',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-chat'  # 正確的 ID
+                model='deepseek/deepseek-chat'
             )
             print("✅ 快速模型 B: DeepSeek V3 (OpenRouter) - 通用強")
         elif os.getenv('GROQ_API_KEY'):
@@ -196,6 +255,7 @@ class ArbitratorConsensusAgent:
         
         print("\n💡 策略: 兩個快速模型分析 → 同意則執行，分歧則由 405B 仲裁")
         print("🆓 全部免費: OpenRouter (20 req/min, 200 req/day)")
+        print("📝 決策歷史：自動記錄至 decision_history.json")
         print("="*70 + "\n")
     
     def analyze_with_arbitration(
@@ -218,9 +278,12 @@ class ArbitratorConsensusAgent:
         print(f"🔍 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 階段 1: 兩個快速模型分析")
         print("━"*70)
         
+        # 獲取最近決策
+        recent_decisions = self._get_recent_decisions(5)
+        
         system_prompt, user_prompt = self._prepare_prompts(
             market_data, account_info, position_info,
-            historical_candles, successful_cases
+            historical_candles, successful_cases, recent_decisions
         )
         
         # 階段 1: 兩個快速模型同時分析
@@ -273,7 +336,7 @@ class ArbitratorConsensusAgent:
                 final_decision = self._arbitrate(
                     market_data, account_info, position_info,
                     decision_a, decision_b,
-                    historical_candles, successful_cases
+                    historical_candles, successful_cases, recent_decisions
                 )
                 final_decision['arbitration'] = True
         
@@ -297,8 +360,12 @@ class ArbitratorConsensusAgent:
             'decision_a': decision_a,
             'decision_b': decision_b,
             'final': final_decision,
-            'needed_arbitration': final_decision.get('arbitration', False)
+            'needed_arbitration': final_decision.get('arbitration', False),
+            'market_price': market_data.get('close', 0)
         })
+        
+        # 保存到檔案
+        self._save_history()
         
         print("\n" + "━"*70)
         print("✅ 最終決策")
@@ -322,7 +389,8 @@ class ArbitratorConsensusAgent:
         decision_a: Dict,
         decision_b: Dict,
         historical_candles: Optional[List[Dict]],
-        successful_cases: Optional[List[Dict]]
+        successful_cases: Optional[List[Dict]],
+        recent_decisions: List[Dict]
     ) -> Dict:
         """仲裁者模型決策"""
         
@@ -338,12 +406,10 @@ class ArbitratorConsensusAgent:
 
 你的任務是根據兩個模型的分析，給出你的最終判斷。
 
-你需要：
-1. 仔細閱讀兩個模型的分析
-2. 評估各自的優勣勢
-3. 結合當前市場數據
-4. 參考歷史 K 棒和成功案例
-5. 給出你的最終決策
+重要：你會看到「最近 5 筆決策歷史」，請避免：
+1. 重複下單（如果剛才已經 OPEN_LONG，不要再 OPEN_LONG）
+2. 矛盾操作（如果持有多單，不要 OPEN_SHORT）
+3. 頻繁交易（如果 5 分鐘前才交易，需要更強的訊號才再交易）
 
 輸出 JSON 格式：
 {
@@ -354,13 +420,9 @@ class ArbitratorConsensusAgent:
   "entry_price": 數字,
   "stop_loss": 數字,
   "take_profit": 數字,
-  "reasoning": "你的仲裁理由，說明為什麼選擇這個決策",
-  "risk_assessment": "LOW" | "MEDIUM" | "HIGH",
-  "analysis_of_model_a": "評價模型 A 的分析",
-  "analysis_of_model_b": "評價模型 B 的分析"
-}
-
-重要: 你可以選擇 A、B 或給出完全不同的第三個答案。"""
+  "reasoning": "你的仲裁理由",
+  "risk_assessment": "LOW" | "MEDIUM" | "HIGH"
+}"""
         
         # 準備仲裁者的完整資訊
         user_prompt_parts = [
@@ -371,6 +433,13 @@ class ArbitratorConsensusAgent:
             "\n持倉資訊:",
             json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
         ]
+        
+        # 增加最近決策歷史
+        if recent_decisions:
+            user_prompt_parts.extend([
+                "\n---\n最近 5 筆決策歷史（請避免重複或矛盾）:",
+                json.dumps(recent_decisions, indent=2, ensure_ascii=False)
+            ])
         
         # 增加歷史 K 棒資訊
         if historical_candles and len(historical_candles) > 0:
@@ -392,15 +461,11 @@ class ArbitratorConsensusAgent:
             f"決策: {decision_a['action']}",
             f"信心度: {decision_a['confidence']}%",
             f"理由: {decision_a['reasoning']}",
-            f"完整分析:",
-            decision_a.get('raw_reasoning', '')[:1500],
             "\n---\n",
             f"\n模型 B ({self.fast_model_b.name}) 的分析:",
             f"決策: {decision_b['action']}",
             f"信心度: {decision_b['confidence']}%",
             f"理由: {decision_b['reasoning']}",
-            f"完整分析:",
-            decision_b.get('raw_reasoning', '')[:1500],
             "\n---\n",
             "\n現在請你作為仲裁者，給出你的最終判斷。"
         ])
@@ -428,7 +493,7 @@ class ArbitratorConsensusAgent:
         
         return {
             'action': decision_a['action'],
-            'confidence': min(avg_confidence + 5, 95),  # 同意提高信心度
+            'confidence': min(avg_confidence + 5, 95),
             'leverage': max(decision_a['leverage'], decision_b['leverage']),
             'position_size_usdt': (decision_a['position_size_usdt'] + decision_b['position_size_usdt']) / 2,
             'entry_price': (decision_a['entry_price'] + decision_b['entry_price']) / 2,
@@ -444,16 +509,17 @@ class ArbitratorConsensusAgent:
         account_info: Dict,
         position_info: Optional[Dict],
         historical_candles: Optional[List[Dict]],
-        successful_cases: Optional[List[Dict]]
+        successful_cases: Optional[List[Dict]],
+        recent_decisions: List[Dict]
     ) -> Tuple[str, str]:
         """準備快速模型的 prompt（增強版）"""
         
         system_prompt = """你是專業的加密貨幣交易 AI 分析師。
 
-你會收到：
-1. 40 種技術指標（RSI, MACD, Bollinger Bands 等）
-2. 歷史 K 棒（最近 20 根，包含開高低收和影線資訊）
-3. 過去成功案例（供參考學習）
+重要：你會看到「最近 5 筆決策歷史」，請避免：
+1. 重複下單（如果剛才已經 OPEN_LONG，不要再 OPEN_LONG）
+2. 矛盾操作（如果持有多單，不要 OPEN_SHORT）
+3. 頻繁交易（如果 5 分鐘前才交易，需要更強的訊號才再交易）
 
 分析時請重點關注：
 - K 線型態（錘子、十字星、包含線、影線長度）
@@ -471,7 +537,7 @@ class ArbitratorConsensusAgent:
   "entry_price": 數字,
   "stop_loss": 數字,
   "take_profit": 數字,
-  "reasoning": "詳細理由，包含 K 線判斷和趋勡分析",
+  "reasoning": "詳細理由",
   "risk_assessment": "LOW" | "MEDIUM" | "HIGH"
 }"""
         
@@ -485,6 +551,13 @@ class ArbitratorConsensusAgent:
             json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
         ]
         
+        # 增加最近決策歷史
+        if recent_decisions:
+            user_prompt_parts.extend([
+                "\n---\n最近 5 筆決策歷史（請避免重複或矛盾）:",
+                json.dumps(recent_decisions, indent=2, ensure_ascii=False)
+            ])
+        
         # 增加歷史 K 棒
         if historical_candles and len(historical_candles) > 0:
             user_prompt_parts.extend([
@@ -496,7 +569,7 @@ class ArbitratorConsensusAgent:
         # 增加成功案例
         if successful_cases and len(successful_cases) > 0:
             user_prompt_parts.extend([
-                "\n---\n過去成功案例（供參考，學習何時該進場/出場）:",
+                "\n---\n過去成功案例（供參考）:",
                 json.dumps(successful_cases[:5], indent=2, ensure_ascii=False)
             ])
         
