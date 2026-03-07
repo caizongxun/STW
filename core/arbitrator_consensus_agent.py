@@ -7,9 +7,9 @@
   - 仲裁者: Llama 3.3 70B (Groq) - 速度快+穩定
 
 備用機制：
-  - Model A 失敗 → Gemini Flash (Google) → Mixtral 8x7B (Groq)
-  - Model B 失敗 → Llama 70B (Groq) → Mixtral 8x7B (Groq)
-  - 仲裁者失敗 → Gemini Flash (Google) → Mixtral 8x7B (Groq) → DeepSeek R1 (OpenRouter)
+  - Model A 失敗 -> Gemini Flash (Google) -> Mixtral 8x7B (Groq)
+  - Model B 失敗 -> Llama 70B (Groq) -> Mixtral 8x7B (Groq)
+  - 仲裁者失敗 -> Gemini Flash (Google) -> Mixtral 8x7B (Groq) -> DeepSeek R1 (OpenRouter)
 
 新功能：
   - 配置檔支持: arbitrator_config.json
@@ -168,7 +168,6 @@ class ArbitratorConsensusAgent:
         self.arbitration_count = 0
         self.agreement_count = 0
         
-        # 記錄最近一次的詳細分析
         self.last_analysis_detail = None
         
         self.config_file = Path(config_file)
@@ -184,25 +183,25 @@ class ArbitratorConsensusAgent:
             if self.config_file.exists():
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    print(f"✅ 讀取配置: {self.config_file}")
+                    print(f"[OK] 讀取配置: {self.config_file}")
                     return config
         except Exception as e:
-            print(f"⚠️ 讀取配置失敗: {e}")
+            print(f"[WARNING] 讀取配置失敗: {e}")
         
-        print("📝 使用預設配置")
+        print("[INFO] 使用預設配置")
         return self.DEFAULT_CONFIG
     
     def _save_config(self):
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.model_config, f, indent=2, ensure_ascii=False)
-            print(f"✅ 配置已保存: {self.config_file}")
+            print(f"[OK] 配置已保存: {self.config_file}")
         except Exception as e:
-            print(f"⚠️ 保存配置失敗: {e}")
+            print(f"[WARNING] 保存配置失敗: {e}")
     
     def reload_models(self):
         print("\n" + "="*70)
-        print("🔄 熱更新: 重新載入模型配置...")
+        print("[RELOAD] 熱更新: 重新載入模型配置...")
         print("="*70)
         
         self.model_config = self._load_config()
@@ -213,7 +212,7 @@ class ArbitratorConsensusAgent:
         self.arbitrator_candidates = []
         self._init_models()
         
-        print("✅ 模型熱更新完成!")
+        print("[OK] 模型熱更新完成!")
         print("="*70 + "\n")
     
     def _create_model_instance(self, provider: str, model: str, name: str, priority: int):
@@ -261,9 +260,9 @@ class ArbitratorConsensusAgent:
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.decision_history = data.get('decisions', [])
-                    print(f"📝 讀取 {len(self.decision_history)} 筆歷史決策")
+                    print(f"[INFO] 讀取 {len(self.decision_history)} 筆歷史決策")
         except Exception as e:
-            print(f"⚠️ 讀取歷史失敗: {e}")
+            print(f"[WARNING] 讀取歷史失敗: {e}")
             self.decision_history = []
     
     def _save_history(self):
@@ -277,7 +276,7 @@ class ArbitratorConsensusAgent:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"⚠️ 保存歷史失敗: {e}")
+            print(f"[WARNING] 保存歷史失敗: {e}")
     
     def _get_recent_decisions(self, limit=5) -> List[Dict]:
         if not self.decision_history:
@@ -296,10 +295,10 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("🏆 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持 + 多時間框架")
+        print("[SYSTEM] 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持 + 多時間框架")
         print("="*70)
         
-        print("\n🤖 快速模型 A (按優先度):")
+        print("\n[MODEL A] 快速模型 A (按優先度):")
         model_a_configs = self.model_config.get('model_a_priority', self.DEFAULT_CONFIG['model_a_priority'])
         for idx, config in enumerate(model_a_configs, 1):
             instance = self._create_model_instance(
@@ -312,14 +311,14 @@ class ArbitratorConsensusAgent:
             if instance:
                 if idx == 1:
                     self.primary_model_a = instance
-                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
+                    print(f"  [OK] {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
                 else:
                     self.backup_models_a.append(instance)
-                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
+                    print(f"  [OK] {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
             else:
-                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
+                print(f"  [FAIL] {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
-        print("\n🤖 快速模型 B (按優先度):")
+        print("\n[MODEL B] 快速模型 B (按優先度):")
         model_b_configs = self.model_config.get('model_b_priority', self.DEFAULT_CONFIG['model_b_priority'])
         for idx, config in enumerate(model_b_configs, 1):
             instance = self._create_model_instance(
@@ -332,14 +331,14 @@ class ArbitratorConsensusAgent:
             if instance:
                 if idx == 1:
                     self.primary_model_b = instance
-                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
+                    print(f"  [OK] {idx}. {config['name']} ({config['provider'].upper()}) - 主力模型")
                 else:
                     self.backup_models_b.append(instance)
-                    print(f"✅ {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
+                    print(f"  [OK] {idx}. {config['name']} ({config['provider'].upper()}) - 備用 {idx-1}")
             else:
-                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
+                print(f"  [FAIL] {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
-        print("\n🧠 仲裁者候選人 (按優先度):")
+        print("\n[ARBITRATOR] 仲裁者候選人 (按優先度):")
         arbitrator_configs = self.model_config.get('arbitrator_priority', self.DEFAULT_CONFIG['arbitrator_priority'])
         for idx, config in enumerate(arbitrator_configs, 1):
             instance = self._create_model_instance(
@@ -351,42 +350,42 @@ class ArbitratorConsensusAgent:
             
             if instance:
                 self.arbitrator_candidates.append(instance)
-                print(f"✅ {idx}. {config['name']} ({config['provider'].upper())")
+                print(f"  [OK] {idx}. {config['name']} ({config['provider'].upper()})")
             else:
-                print(f"❌ {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
+                print(f"  [FAIL] {idx}. {config['name']} ({config['provider'].upper()}) - API Key 缺失")
         
-        print("\n📊 系統統計:")
+        print("\n[STATS] 系統統計:")
         print(f"  Model A: {1 if self.primary_model_a else 0} 主力 + {len(self.backup_models_a)} 備用")
         print(f"  Model B: {1 if self.primary_model_b else 0} 主力 + {len(self.backup_models_b)} 備用")
         print(f"  仲裁者: {len(self.arbitrator_candidates)} 候選人")
         
-        print("\n💡 策略: 主力模型失敗 → 自動嘗試備用模型")
-        print("✅ 跨平台: Groq + Google + OpenRouter")
-        print("🆓 每天約 16,400+ 次請求")
-        print("📝 決策歷史: decision_history.json")
-        print(f"⚙️ 配置檔: {self.config_file}")
-        print("🔄 熱更新: 修改配置立即生效 (無需重啟)")
-        print("🕒 多時間框架: 15m (主) + 1h + 4h 分析")
-        print("🔄 逆勢操作: 允許在 1h 內高信心度逆勢")
+        print("\n[STRATEGY] 策略: 主力模型失敗 -> 自動嘗試備用模型")
+        print("  跨平台: Groq + Google + OpenRouter")
+        print("  每天約 16,400+ 次請求")
+        print(f"  決策歷史: {self.history_file}")
+        print(f"  配置檔: {self.config_file}")
+        print("  熱更新: 修改配置立即生效 (無需重啟)")
+        print("  多時間框架: 15m (主) + 1h + 4h 分析")
+        print("  逆勢操作: 允許在 1h 內高信心度逆勢")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
         if primary_model:
-            print(f"\n🤖 [{primary_model.name}] 分析中...")
+            print(f"\n[{primary_model.name}] 分析中...")
             result = primary_model.analyze(system_prompt, user_prompt)
             
             if result['success']:
                 decision = self._parse_decision(result['content'])
                 decision['raw_reasoning'] = result['content']
                 decision['model_name'] = primary_model.name
-                print(f"✅ [{primary_model.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
-                print(f"   理由: {decision['reasoning'][:80]}...")
+                print(f"[OK] [{primary_model.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
+                print(f"     理由: {decision['reasoning'][:80]}...")
                 return decision
             else:
-                print(f"❌ [{primary_model.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
+                print(f"[FAIL] [{primary_model.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
         
         for idx, backup in enumerate(backup_models, 1):
-            print(f"\n➡️ 嘗試備用模型 {idx}: [{backup.name}]")
+            print(f"\n[BACKUP] 嘗試備用模型 {idx}: [{backup.name}]")
             time.sleep(1)
             
             result = backup.analyze(system_prompt, user_prompt)
@@ -395,13 +394,13 @@ class ArbitratorConsensusAgent:
                 decision = self._parse_decision(result['content'])
                 decision['raw_reasoning'] = result['content']
                 decision['model_name'] = backup.name
-                print(f"✅ [{backup.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
-                print(f"   理由: {decision['reasoning'][:80]}...")
+                print(f"[OK] [{backup.name}]: {decision['action']} (信心度 {decision['confidence']}%) - {result['elapsed_time']:.1f}s")
+                print(f"     理由: {decision['reasoning'][:80]}...")
                 return decision
             else:
-                print(f"❌ [{backup.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
+                print(f"[FAIL] [{backup.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
         
-        print(f"\n❌ {label} 所有模型都失敗")
+        print(f"\n[FAIL] {label} 所有模型都失敗")
         return None
     
     def analyze_with_arbitration(
@@ -413,29 +412,15 @@ class ArbitratorConsensusAgent:
         successful_cases: Optional[List[Dict]] = None,
         multi_timeframe_data: Optional[Dict] = None
     ) -> Dict:
-        """
-        帶多時間框架分析的仲裁決策
-        
-        Args:
-            market_data: 當前 15m 市場數據
-            account_info: 賬戶資訊
-            position_info: 持倉資訊
-            historical_candles: 歷史 K 棒 (15m)
-            successful_cases: 成功案例
-            multi_timeframe_data: 多時間框架數據 {
-                '1h': {'current': {...}, 'candles': [...]},
-                '4h': {'current': {...}, 'candles': [...]}
-            }
-        """
         if not self.primary_model_a and not self.primary_model_b:
-            print("⚠️ 快速模型未配置，降級為單模型")
+            print("[WARNING] 快速模型未配置，降級為單模型")
             from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
             agent = PositionAwareDeepSeekAgent()
             return agent.analyze_with_position(market_data, account_info, position_info)
         
-        print("\n" + "━"*70)
-        print(f"🔍 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 階段 1: 兩個快速模型分析")
-        print("━"*70)
+        print("\n" + "="*70)
+        print(f"[ANALYSIS] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 階段 1: 兩個快速模型分析")
+        print("="*70)
         
         recent_decisions = self._get_recent_decisions(5)
         system_prompt, user_prompt = self._prepare_prompts(
@@ -444,7 +429,6 @@ class ArbitratorConsensusAgent:
             multi_timeframe_data
         )
         
-        # 記錄 prompt
         self.last_analysis_detail = {
             'timestamp': datetime.now().isoformat(),
             'system_prompt': system_prompt,
@@ -490,18 +474,18 @@ class ArbitratorConsensusAgent:
         
         if decision_a and decision_b:
             if decision_a['action'] == decision_b['action']:
-                print("\n" + "━"*70)
-                print("✅ 兩個模型同意，直接執行")
-                print("━"*70)
+                print("\n" + "="*70)
+                print("[OK] 兩個模型同意，直接執行")
+                print("="*70)
                 
                 self.agreement_count += 1
                 final_decision = self._merge_agreements(decision_a, decision_b)
                 final_decision['arbitration'] = False
             else:
-                print("\n" + "━"*70)
-                print(f"⚠️ 意見分歧: {decision_a['action']} vs {decision_b['action']}")
-                print("🧠 階段 2: 調用仲裁者")
-                print("━"*70)
+                print("\n" + "="*70)
+                print(f"[WARNING] 意見分歧: {decision_a['action']} vs {decision_b['action']}")
+                print("[ARBITRATOR] 階段 2: 調用仲裁者")
+                print("="*70)
                 
                 self.arbitration_count += 1
                 final_decision = self._arbitrate(
@@ -512,19 +496,18 @@ class ArbitratorConsensusAgent:
                 )
                 final_decision['arbitration'] = True
         elif decision_a:
-            print("\n⚠️ Model B 所有模型失敗，使用 Model A")
+            print("\n[WARNING] Model B 所有模型失敗，使用 Model A")
             final_decision = decision_a
             final_decision['arbitration'] = False
         elif decision_b:
-            print("\n⚠️ Model A 所有模型失敗，使用 Model B")
+            print("\n[WARNING] Model A 所有模型失敗，使用 Model B")
             final_decision = decision_b
             final_decision['arbitration'] = False
         else:
-            print("\n❌ 所有模型都失敗，HOLD")
+            print("\n[FAIL] 所有模型都失敗，HOLD")
             final_decision = self._emergency_hold()
             final_decision['arbitration'] = False
         
-        # 記錄最終決策
         self.last_analysis_detail['final_decision'] = final_decision
         final_decision['analysis_detail'] = self.last_analysis_detail
         
@@ -539,14 +522,14 @@ class ArbitratorConsensusAgent:
         })
         self._save_history()
         
-        print("\n" + "━"*70)
-        print("✅ 最終決策")
-        print("━"*70)
+        print("\n" + "="*70)
+        print("[FINAL] 最終決策")
+        print("="*70)
         print(f"Action: {final_decision['action']}")
         print(f"Confidence: {final_decision['confidence']}%")
-        print("🧠 由仲裁者決定" if final_decision.get('arbitration') else "✅ 兩個模型共識")
+        print("[ARBITRATOR] 由仲裁者決定" if final_decision.get('arbitration') else "[CONSENSUS] 兩個模型共識")
         print(f"Reasoning: {final_decision['reasoning'][:150]}...")
-        print("━"*70 + "\n")
+        print("="*70 + "\n")
         
         return final_decision
     
@@ -563,7 +546,7 @@ class ArbitratorConsensusAgent:
         multi_timeframe_data: Optional[Dict] = None
     ) -> Dict:
         if not self.arbitrator_candidates:
-            print("⚠️ 仲裁者未配置，選擇信心度較高的模型")
+            print("[WARNING] 仲裁者未配置，選擇信心度較高的模型")
             return decision_a if decision_a['confidence'] >= decision_b['confidence'] else decision_b
         
         arbitrator_system_prompt = """你是頂尖的加密貨幣交易 AI 仲裁者。
@@ -592,7 +575,6 @@ class ArbitratorConsensusAgent:
             "\n---\n最近決策:", json.dumps(recent_decisions, indent=2, ensure_ascii=False) if recent_decisions else '[]'
         ]
         
-        # 加入多時間框架資訊
         if multi_timeframe_data:
             user_prompt_parts.extend([
                 "\n---\n多時間框架資訊:",
@@ -609,7 +591,7 @@ class ArbitratorConsensusAgent:
         arbitrator_user_prompt = "\n".join(user_prompt_parts)
         
         for idx, arbitrator in enumerate(self.arbitrator_candidates):
-            print(f"\n🧠 [{arbitrator.name}] 仲裁中...")
+            print(f"\n[ARBITRATOR] [{arbitrator.name}] 仲裁中...")
             result = arbitrator.analyze(arbitrator_system_prompt, arbitrator_user_prompt)
             
             if result['success']:
@@ -617,7 +599,6 @@ class ArbitratorConsensusAgent:
                 final_decision['model_name'] = arbitrator.name
                 final_decision['raw_reasoning'] = result['content']
                 
-                # 記錄仲裁者回應
                 self.last_analysis_detail['model_responses']['arbitrator'] = {
                     'model_name': arbitrator.name,
                     'action': final_decision['action'],
@@ -626,15 +607,15 @@ class ArbitratorConsensusAgent:
                     'full_response': result['content']
                 }
                 
-                print(f"✅ 仲裁完成: {final_decision['action']} (信心 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
+                print(f"[OK] 仲裁完成: {final_decision['action']} (信心 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
                 return final_decision
             else:
-                print(f"❌ 仲裁失敗: {result.get('error', '')[:80]}")
+                print(f"[FAIL] 仲裁失敗: {result.get('error', '')[:80]}")
                 if idx < len(self.arbitrator_candidates) - 1:
-                    print("➡️ 嘗試下一個仲裁者...")
+                    print("[BACKUP] 嘗試下一個仲裁者...")
                     time.sleep(1)
         
-        print("\n⚠️ 所有仲裁者失敗，選擇信心度高者")
+        print("\n[WARNING] 所有仲裁者失敗，選擇信心度高者")
         return decision_a if decision_a['confidence'] >= decision_b['confidence'] else decision_b
     
     def _merge_agreements(self, decision_a: Dict, decision_b: Dict) -> Dict:
@@ -647,7 +628,7 @@ class ArbitratorConsensusAgent:
             'entry_price': (decision_a['entry_price'] + decision_b['entry_price']) / 2,
             'stop_loss': (decision_a['stop_loss'] + decision_b['stop_loss']) / 2,
             'take_profit': (decision_a['take_profit'] + decision_b['take_profit']) / 2,
-            'reasoning': f"✅ 共識: {decision_a['action']}. A: {decision_a['reasoning'][:50]}... B: {decision_b['reasoning'][:50]}...",
+            'reasoning': f"[CONSENSUS] 共識: {decision_a['action']}. A: {decision_a['reasoning'][:50]}... B: {decision_b['reasoning'][:50]}...",
             'risk_assessment': decision_a['risk_assessment']
         }
     
@@ -676,7 +657,6 @@ class ArbitratorConsensusAgent:
 輸出 JSON 格式:
 {"action": "OPEN_LONG|OPEN_SHORT|CLOSE|HOLD", "confidence": 0-100, "leverage": 1-5, "position_size_usdt": 數字, "entry_price": 數字, "stop_loss": 數字, "take_profit": 數字, "reasoning": "詳細理由", "risk_assessment": "LOW|MEDIUM|HIGH", "is_counter_trend": true|false}"""
         
-        # 準備 user prompt 部分
         user_prompt_parts = [
             "=== 市場數據 (15m 主時間框架) ===",
             json.dumps(market_data, indent=2, ensure_ascii=False),
@@ -686,7 +666,6 @@ class ArbitratorConsensusAgent:
             json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
         ]
         
-        # 加入多時間框架資料
         if multi_timeframe_data:
             user_prompt_parts.extend([
                 "\n=== 多時間框架分析 ===",
@@ -695,21 +674,18 @@ class ArbitratorConsensusAgent:
                 json.dumps(multi_timeframe_data, indent=2, ensure_ascii=False)
             ])
         
-        # 加入歷史 K 棒 (前 20 根)
         if historical_candles and len(historical_candles) > 0:
             user_prompt_parts.extend([
                 f"\n=== 歷史 K 棒 (15m, 前 {len(historical_candles)} 根) ===",
                 json.dumps(historical_candles, indent=2, ensure_ascii=False)
             ])
         
-        # 加入最近決策
         if recent_decisions and len(recent_decisions) > 0:
             user_prompt_parts.extend([
                 f"\n=== 最近 {len(recent_decisions)} 次決策 ===",
                 json.dumps(recent_decisions, indent=2, ensure_ascii=False)
             ])
         
-        # 加入成功案例
         if successful_cases and len(successful_cases) > 0:
             user_prompt_parts.extend([
                 f"\n=== 成功案例 (共 {len(successful_cases)} 個) ===",
@@ -728,7 +704,6 @@ class ArbitratorConsensusAgent:
                 start = content.index('{')
                 end = content.rindex('}') + 1
                 decision = json.loads(content[start:end])
-                # 確保有 is_counter_trend 欄位
                 if 'is_counter_trend' not in decision:
                     decision['is_counter_trend'] = False
                 return decision
@@ -748,7 +723,6 @@ class ArbitratorConsensusAgent:
         }
     
     def get_last_analysis_detail(self) -> Optional[Dict]:
-        """獲取最近一次的詳細分析 (prompt + 模型回應)"""
         return self.last_analysis_detail
     
     def get_statistics(self) -> Dict:
