@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 分析聊天室 - LINE 風格</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #b2c7d9;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            background: #fff;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .chat-header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .chat-header .status {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #b2c7d9;
+        }
+
+        .message-group {
+            margin-bottom: 30px;
+        }
+
+        .message-time {
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+
+        /* 用戶消息 (右側 - User Prompt) */
+        .message.user {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 10px;
+        }
+
+        .message.user .message-content {
+            background: #b2f7ef;
+            color: #000;
+            max-width: 70%;
+            padding: 12px 15px;
+            border-radius: 18px;
+            border-top-right-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        /* AI 消息 (左側 - AI Response) */
+        .message.ai {
+            display: flex;
+            margin-bottom: 10px;
+        }
+
+        .message.ai .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-right: 10px;
+            flex-shrink: 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .message.ai .message-wrapper {
+            max-width: 70%;
+        }
+
+        .message.ai .model-name {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 4px;
+            padding-left: 5px;
+        }
+
+        .message.ai .message-content {
+            background: #fff;
+            color: #000;
+            padding: 12px 15px;
+            border-radius: 18px;
+            border-top-left-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message.ai .message-content pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+
+        .message.ai .message-content code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        /* 決策標籤 */
+        .decision-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .decision-badge.OPEN_LONG {
+            background: #4caf50;
+            color: white;
+        }
+
+        .decision-badge.OPEN_SHORT {
+            background: #f44336;
+            color: white;
+        }
+
+        .decision-badge.HOLD {
+            background: #ff9800;
+            color: white;
+        }
+
+        .decision-badge.CLOSE {
+            background: #2196f3;
+            color: white;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 回到頂部按鈕 */
+        .back-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #00b900;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            text-decoration: none;
+            font-size: 20px;
+            z-index: 1000;
+        }
+
+        .back-button:hover {
+            background: #009900;
+        }
+
+        /* Prompt section */
+        .prompt-section {
+            background: #fffacd;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 10px 0;
+            border-left: 4px solid #ffd700;
+        }
+
+        .prompt-section h3 {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .prompt-section .prompt-content {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-header">
+        <div>
+            <h1>🤖 AI 分析聊天室</h1>
+            <div class="status" id="status">Loading...</div>
+        </div>
+        <a href="/" class="btn btn-sm btn-outline-secondary" style="text-decoration: none; padding: 8px 15px; border: 1px solid #ccc; border-radius: 6px; color: #666;">← 返回主頁</a>
+    </div>
+
+    <div class="chat-container" id="chat-container">
+        <div class="loading">
+            <div class="loading-spinner"></div>
+            <p>正在加載 AI 分析數據...</p>
+        </div>
+    </div>
+
+    <a href="#" class="back-button" onclick="scrollToTop(); return false;">↑</a>
+
+    <script>
+        let updateInterval = null;
+
+        function scrollToTop() {
+            document.getElementById('chat-container').scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('chat-container');
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-TW', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatPrompt(prompt) {
+            // 簡單分段
+            return escapeHtml(prompt).replace(/\n/g, '<br>');
+        }
+
+        function formatAIResponse(content) {
+            // 嘗試識別 JSON 並美化
+            if (content.includes('{') && content.includes('}')) {
+                try {
+                    const jsonStart = content.indexOf('{');
+                    const jsonEnd = content.lastIndexOf('}') + 1;
+                    const jsonStr = content.substring(jsonStart, jsonEnd);
+                    const parsed = JSON.parse(jsonStr);
+                    
+                    const before = content.substring(0, jsonStart);
+                    const after = content.substring(jsonEnd);
+                    
+                    return escapeHtml(before) + 
+                           '<pre>' + JSON.stringify(parsed, null, 2) + '</pre>' +
+                           escapeHtml(after);
+                } catch (e) {
+                    // JSON 解析失敗，照常顯示
+                }
+            }
+            
+            return escapeHtml(content).replace(/\n/g, '<br>');
+        }
+
+        function renderChat(data) {
+            const container = document.getElementById('chat-container');
+            const timestamp = data.timestamp || new Date().toISOString();
+            
+            let html = `
+                <div class="message-group">
+                    <div class="message-time">${formatTimestamp(timestamp)}</div>
+                    
+                    <!-- User Prompt -->
+                    <div class="message user">
+                        <div class="message-content">
+                            <strong>📊 市場分析請求</strong><br><br>
+                            <div class="prompt-section">
+                                <h3>System Prompt:</h3>
+                                <div class="prompt-content">${formatPrompt(data.system_prompt || '無')}</div>
+                            </div>
+                            <div class="prompt-section" style="background: #e6f7ff; border-left-color: #1890ff;">
+                                <h3>User Prompt:</h3>
+                                <div class="prompt-content">${formatPrompt(data.user_prompt || '無')}</div>
+                            </div>
+                        </div>
+                    </div>
+            `;
+
+            // Model A
+            if (data.model_responses && data.model_responses.model_a) {
+                const modelA = data.model_responses.model_a;
+                html += `
+                    <div class="message ai">
+                        <div class="avatar">🤖</div>
+                        <div class="message-wrapper">
+                            <div class="model-name">${modelA.model_name || 'Model A'}</div>
+                            <div class="message-content">
+                                <span class="decision-badge ${modelA.action}">${modelA.action}</span>
+                                <span style="color: #666; font-size: 13px;">信心度: ${modelA.confidence}%</span>
+                                <br><br>
+                                ${formatAIResponse(modelA.raw_content || modelA.reasoning || '無回應')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Model B
+            if (data.model_responses && data.model_responses.model_b) {
+                const modelB = data.model_responses.model_b;
+                html += `
+                    <div class="message ai">
+                        <div class="avatar">🤖</div>
+                        <div class="message-wrapper">
+                            <div class="model-name">${modelB.model_name || 'Model B'}</div>
+                            <div class="message-content">
+                                <span class="decision-badge ${modelB.action}">${modelB.action}</span>
+                                <span style="color: #666; font-size: 13px;">信心度: ${modelB.confidence}%</span>
+                                <br><br>
+                                ${formatAIResponse(modelB.raw_content || modelB.reasoning || '無回應')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Arbitrator
+            if (data.model_responses && data.model_responses.arbitrator) {
+                const arbitrator = data.model_responses.arbitrator;
+                html += `
+                    <div class="message ai">
+                        <div class="avatar">⚖️</div>
+                        <div class="message-wrapper">
+                            <div class="model-name">仲裁者: ${arbitrator.model_name || 'Arbitrator'}</div>
+                            <div class="message-content">
+                                <span class="decision-badge ${arbitrator.action}">${arbitrator.action}</span>
+                                <span style="color: #666; font-size: 13px;">信心度: ${arbitrator.confidence}%</span>
+                                <br><br>
+                                ${formatAIResponse(arbitrator.raw_content || arbitrator.reasoning || '無回應')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Executor
+            if (data.model_responses && data.model_responses.executor) {
+                const executor = data.model_responses.executor;
+                html += `
+                    <div class="message ai">
+                        <div class="avatar">✅</div>
+                        <div class="message-wrapper">
+                            <div class="model-name">執行審核員</div>
+                            <div class="message-content">
+                                <strong>決策:</strong> <span class="decision-badge ${executor.execution_decision}">${executor.execution_decision}</span><br>
+                                <strong>最終動作:</strong> <code>${executor.final_action}</code><br>
+                                <strong>調整信心度:</strong> ${executor.adjusted_confidence}%<br><br>
+                                ${formatAIResponse(executor.raw_content || executor.reasoning || '無回應')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+
+            container.innerHTML = html;
+            setTimeout(scrollToBottom, 100);
+        }
+
+        async function loadAIChatData() {
+            try {
+                const response = await fetch('/api/ai-chat-data');
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    document.getElementById('status').textContent = '最後更新: ' + new Date().toLocaleTimeString('zh-TW');
+                    renderChat(result.data);
+                } else {
+                    document.getElementById('chat-container').innerHTML = `
+                        <div class="loading">
+                            <p style="color: #999;">ℹ️ ${result.message || '尚無 AI 分析數據'}</p>
+                            <p style="font-size: 12px; color: #666; margin-top: 10px;">請在主頁點擊「獲取實時訊號」按鈕</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to load AI chat data:', error);
+                document.getElementById('chat-container').innerHTML = `
+                    <div class="loading">
+                        <p style="color: #f44336;">❌ 加載失敗</p>
+                        <p style="font-size: 12px; color: #666; margin-top: 10px;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAIChatData();
+            
+            // 每 30 秒自動重新加載
+            updateInterval = setInterval(loadAIChatData, 30000);
+        });
+
+        // 頁面離開時清理
+        window.addEventListener('beforeunload', () => {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        });
+    </script>
+</body>
+</html>
