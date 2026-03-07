@@ -1,0 +1,37 @@
+{
+  "_comment": "複製這個檔案為 config.json 並填入你的 API keys",
+  
+  "use_dual_model": false,
+  "dual_model_mode": "consensus",
+  
+  "_comment_arbitrator": "啟用兩階段仲裁 (Model A + Model B + Arbitrator)",
+  "use_arbitrator_consensus": true,
+  
+  "_comment_apis": "API Keys - 至少需要 2 個 (Groq + Google 或 OpenRouter)",
+  
+  "GROQ_API_KEY": "gsk_...",
+  "_groq_note": "速度最快，額度最高 (14,400/天)，強烈推薦",
+  
+  "GOOGLE_API_KEY": "AIza...",
+  "_google_note": "官方 API，非常穩定 (1,500/天)",
+  
+  "OPENROUTER_API_KEY": "sk-or-v1-...",
+  "_openrouter_note": "多模型選擇，作為備用 (200/天)",
+  
+  "GITHUB_TOKEN": "ghp_...",
+  "_github_note": "GitHub Models (1,000/天)",
+  
+  "DEEPSEEK_API_KEY": "sk-...",
+  "_deepseek_note": "付費但極便宜 ($0.14/M tokens)",
+  
+  "_comment_trading": "Bybit 交易配置 (可選)",
+  "BYBIT_API_KEY": "",
+  "BYBIT_API_SECRET": "",
+  "BYBIT_DEMO_MODE": true,
+  
+  "_comment_settings": "交易設定",
+  "symbol": "BTCUSDT",
+  "timeframe": "15m",
+  "capital": 10000,
+  "ai_confidence_threshold": 0.7
+}
