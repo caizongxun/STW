@@ -4,6 +4,7 @@ Flask 主伺服器 - 取代 Streamlit
 新增: 兩階段仲裁決策系統
 修正: 啟動時自動讀取 config.json 並設定環境變數
 新增: 模型選擇器功能 (支持熱更新)
+新增: 分析詳細功能 (顯示prompt和模型回應)
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -45,6 +46,14 @@ try:
 except ImportError as e:
     HAS_MODEL_SELECTOR = False
     print(f"警告: 模型選擇器功能不可用 - {e}")
+
+# 導入分析詳細 API 路由
+try:
+    from api_routes_analysis_detail import register_analysis_detail_routes
+    HAS_ANALYSIS_DETAIL = True
+except ImportError as e:
+    HAS_ANALYSIS_DETAIL = False
+    print(f"警告: 分析詳細功能不可用 - {e}")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -165,12 +174,25 @@ def save_cases():
 
 
 def _prepare_historical_candles(df: pd.DataFrame, num_candles: int = 20) -> List[Dict]:
-    """準備歷史 K 棒數據"""
-    candles = df.tail(num_candles)[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+    """
+    準備歷史 K 棒數據 (包含完整的40種技術指標)
+    讓 AI 能看到每根 K 棒的完整市場狀態
+    """
+    if len(df) < num_candles:
+        num_candles = len(df)
     
-    # 計算顏色和影線
     result = []
-    for idx, row in candles.iterrows():
+    
+    # 從倒數 num_candles 根開始處理
+    for i in range(-num_candles, 0):
+        # 對每一根 K 棒使用 prepare_market_features 計算完整指標
+        # 使用截至當前 K 棒的資料
+        df_slice = df.iloc[:len(df) + i + 1].copy()
+        row = df.iloc[i]
+        
+        features = prepare_market_features(row, df_slice)
+        
+        # 加入時間戳和基本 OHLCV
         candle_info = {
             'timestamp': row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
             'open': float(row['open']),
@@ -178,12 +200,11 @@ def _prepare_historical_candles(df: pd.DataFrame, num_candles: int = 20) -> List
             'low': float(row['low']),
             'close': float(row['close']),
             'volume': float(row['volume']),
-            'color': 'green' if row['close'] >= row['open'] else 'red',
-            'body_size': abs(row['close'] - row['open']),
-            'upper_shadow': row['high'] - max(row['open'], row['close']),
-            'lower_shadow': min(row['open'], row['close']) - row['low'],
-            'change_pct': ((row['close'] - row['open']) / row['open'] * 100) if row['open'] > 0 else 0
+            
+            # 全部 40 種技術指標
+            'features': features
         }
+        
         result.append(candle_info)
     
     return result
@@ -465,7 +486,7 @@ def analyze_market():
             account_info=account_info,
             position_info=position_info,
             historical_candles=historical_candles,
-            successful_cases=app_state['cases'][:10]  # 最多傳 10 個案例
+            successful_cases=app_state['cases'][:10]
         )
         
         latest_price = float(df['close'].iloc[-1])
@@ -491,7 +512,7 @@ def analyze_market():
         
         print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
         print(f"[ANALYZE] Model type: {decision.get('model_type', 'unknown')}")
-        print(f"[ANALYZE] Provided {len(historical_candles)} historical candles")
+        print(f"[ANALYZE] Provided {len(historical_candles)} historical candles with 40+ features each")
         print(f"[ANALYZE] Provided {len(app_state['cases'][:10])} successful cases")
         
         return jsonify(app_state['latest_signal'])
@@ -855,6 +876,11 @@ if __name__ == '__main__':
         register_model_selector_routes(app, app_state)
         print("✅ 模型選擇器功能已啟用 (支持熱更新)")
     
+    # 註冊分析詳細 API 路由
+    if HAS_ANALYSIS_DETAIL:
+        register_analysis_detail_routes(app, app_state)
+        print("✅ 分析詳細功能已啟用")
+    
     print("")
     print("=" * 60)
     print("  Flask Server Starting - STW AI Trading System")
@@ -871,9 +897,13 @@ if __name__ == '__main__':
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     print("    - Decision history tracking (avoid duplicate)")
+    print("    - Historical candles with 40+ technical indicators")
     
     if HAS_MODEL_SELECTOR:
         print("    - Model selector with hot-reload (熱更新)")
+    
+    if HAS_ANALYSIS_DETAIL:
+        print("    - Analysis detail view (prompt + model responses)")
     
     if HAS_ARBITRATOR:
         print("    - Two-stage Arbitrator Consensus")
@@ -888,7 +918,6 @@ if __name__ == '__main__':
     
     if HAS_CONFIG_MANAGER:
         print("  Config Manager: Enabled")
-        # 顯示已設定的 API Key
         env_keys = []
         if os.getenv('OPENROUTER_API_KEY'):
             env_keys.append('OPENROUTER_API_KEY')
@@ -916,6 +945,11 @@ if __name__ == '__main__':
         print("  Model Selector: Enabled (Hot-Reload)")
     else:
         print("  Model Selector: Disabled")
+    
+    if HAS_ANALYSIS_DETAIL:
+        print("  Analysis Detail: Enabled")
+    else:
+        print("  Analysis Detail: Disabled")
     
     print("=" * 60)
     print("")
