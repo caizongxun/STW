@@ -1,11 +1,12 @@
 """
 Flask 主伺服器 - 取代 Streamlit
 支持即時更新、多 Tab 同時操作、無閃爍
-新增: 兩階段仲裁決策系統
+新增: 三階段仲裁決策系統 (階段1: 雙模型 -> 階段2: 仲裁者 -> 階段3: 交易執行審核)
 修正: 啟動時自動讀取 config.json 並設定環境變數
 新增: 模型選擇器功能 (支持熱更新)
 新增: 分析詳細功能 (顯示prompt和模型回應)
 新增: 多時間框架分析 (15m+1h+4h) + 逆勢操作
+新增: 強健 JSON 解析器 (自動修復格式錯誤)
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -191,7 +192,7 @@ def _prepare_historical_candles(df: pd.DataFrame, num_candles: int = 20) -> List
     # 從倒數 num_candles 根開始處理
     for i in range(-num_candles, 0):
         # 對每一根 K 棒使用 prepare_market_features 計算完整指標
-        # 使用愰至當前 K 棒的資料
+        # 使用愤至當前 K 棒的資料
         df_slice = df.iloc[:len(df) + i + 1].copy()
         row = df.iloc[i]
         
@@ -223,14 +224,14 @@ def _get_ai_decision(
     successful_cases: Optional[List[Dict]] = None,
     multi_timeframe_data: Optional[Dict] = None
 ):
-    """獲取 AI 決策（單模型/雙模型/兩階段仲裁）"""
+    """獲取 AI 決策（單模型/雙模型/三階段仲裁）"""
     
-    # 優先檢查兩階段仲裁
+    # 優先檢查三階段仲裁（雙模型 + 仲裁者 + 執行審核）
     if app_state['use_arbitrator_consensus'] and HAS_ARBITRATOR:
         if not app_state['arbitrator_agent']:
             app_state['arbitrator_agent'] = ArbitratorConsensusAgent()
         
-        print("[DECISION] Using Arbitrator Consensus (2-stage with Multi-Timeframe)")
+        print("[DECISION] Using Arbitrator Consensus (3-stage: A/B -> Arbitrator -> Executor)")
         result = app_state['arbitrator_agent'].analyze_with_arbitration(
             market_data=market_data,
             account_info=account_info,
@@ -405,6 +406,26 @@ def get_api_stats():
         })
 
 
+@app.route('/api/arbitrator/stats', methods=['GET'])
+def get_arbitrator_stats():
+    """獲取三階段仲裁系統統計"""
+    try:
+        if not app_state.get('arbitrator_agent'):
+            return jsonify({
+                'enabled': False,
+                'stats': None
+            })
+        
+        stats = app_state['arbitrator_agent'].get_statistics()
+        
+        return jsonify({
+            'enabled': True,
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/dual-model/stats', methods=['GET'])
 def get_dual_model_stats():
     """獲取雙模型統計"""
@@ -555,6 +576,10 @@ def analyze_market():
         # 如果是逆勢操作，加入標記
         if decision.get('is_counter_trend'):
             print("[ANALYZE] Counter-trend operation detected!")
+        
+        # 如果有執行審核結果
+        if 'execution_decision' in decision:
+            print(f"[ANALYZE] Executor decision: {decision['execution_decision']}")
         
         return jsonify(app_state['latest_signal'])
         
@@ -852,23 +877,28 @@ def _save_ai_prediction_log(
     decision: Dict,
     market_data: Dict
 ):
+    # 處理執行審核員調整後的決策
+    final_action = decision.get('final_action', decision.get('action', 'HOLD'))
+    final_confidence = decision.get('adjusted_confidence', decision.get('confidence', 0))
+    
     log_entry = {
         'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
         'symbol': symbol,
         'timeframe': timeframe,
         'close_price': float(price),
-        'action': decision.get('action', 'HOLD'),
-        'confidence': decision.get('confidence', 0),
-        'leverage': decision.get('leverage', 1),
-        'position_size_usdt': decision.get('position_size_usdt', 0),
+        'action': final_action,
+        'confidence': final_confidence,
+        'leverage': decision.get('adjusted_leverage', decision.get('leverage', 1)),
+        'position_size_usdt': decision.get('adjusted_position_size', decision.get('position_size_usdt', 0)),
         'stop_loss': decision.get('stop_loss'),
         'take_profit': decision.get('take_profit'),
-        'reasoning': decision.get('reasoning', '')[:200],
+        'reasoning': decision.get('executor_reasoning', decision.get('reasoning', ''))[:200],
         'risk_assessment': decision.get('risk_assessment', 'MEDIUM'),
         'model_type': decision.get('model_type', 'single'),
         'is_counter_trend': decision.get('is_counter_trend', False),
+        'execution_decision': decision.get('execution_decision'),  # EXECUTE/REJECT/REDUCE_SIZE
         'agreement': decision.get('agreement'),
-        'predicted_direction': _get_direction_from_action(decision.get('action', 'HOLD')),
+        'predicted_direction': _get_direction_from_action(final_action),
         'actual_direction': None,
         'is_correct': None,
         'rsi': market_data.get('rsi'),
@@ -890,7 +920,8 @@ def _save_ai_prediction_log(
     
     model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] in ['dual', 'arbitrator'] else ""
     counter_info = " [Counter-trend]" if log_entry['is_counter_trend'] else ""
-    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}{counter_info}")
+    executor_info = f" [{log_entry['execution_decision']}]" if log_entry.get('execution_decision') else ""
+    print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}{counter_info}{executor_info}")
     print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
 
@@ -981,7 +1012,8 @@ if __name__ == '__main__':
         print("    - Analysis detail view (prompt + model responses)")
     
     if HAS_ARBITRATOR:
-        print("    - Two-stage Arbitrator Consensus")
+        print("    - Three-stage Arbitrator Consensus (A/B -> Arbitrator -> Executor)")
+        print("    - Robust JSON parser (auto-fix format errors)")
         print(f"      Enabled: {app_state['use_arbitrator_consensus']}")
     
     if HAS_DUAL_MODEL:
@@ -1007,7 +1039,7 @@ if __name__ == '__main__':
         print("  Config Manager: Disabled")
     
     if HAS_ARBITRATOR:
-        print("  Arbitrator: Enabled")
+        print("  Arbitrator: Enabled (3-stage)")
     else:
         print("  Arbitrator: Disabled")
     
@@ -1031,6 +1063,7 @@ if __name__ == '__main__':
     else:
         print("  Analysis Detail: Disabled")
     
+    print("  JSON Parser: Robust (auto-fix Markdown/quotes/format)")
     print("=" * 60)
     print("")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
