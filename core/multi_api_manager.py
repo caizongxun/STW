@@ -75,7 +75,7 @@ class APIProvider:
         self.failure_count += 1
         if self.failure_count >= 3:
             self.is_available = False
-            print(f"⚠️ {self.name} 連續失敗 3 次，暫時停用")
+            print(f"[WARN] {self.name} 連續失敗 3 次，暫時停用")
     
     def reset_availability(self):
         """重置可用性"""
@@ -148,34 +148,34 @@ class MultiAPIManager:
                 priority=3  # 作為備用
             ))
             
-            # Gemini 2.0 Flash Exp - 修正模型 ID
+            # Gemini 2.0 Flash Exp
             self.providers.append(APIProvider(
                 name='OpenRouter_Gemini_2_Flash',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='google/gemini-2.0-flash-exp:free',  # ✅ 修正
+                model='google/gemini-2.0-flash-exp:free',
                 rpm_limit=20,
                 daily_limit=200,
                 priority=3
             ))
             
-            # Mistral Small 3.1 - 修正模型 ID
+            # Mistral Small 3.1
             self.providers.append(APIProvider(
                 name='OpenRouter_Mistral_Small',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='mistralai/mistral-small-3.1:free',  # ✅ 修正
+                model='mistralai/mistral-small-3.1:free',
                 rpm_limit=20,
                 daily_limit=200,
                 priority=3
             ))
             
-            # Qwen 2.5 Coder - 修正模型 ID
+            # Qwen 2.5 Coder
             self.providers.append(APIProvider(
                 name='OpenRouter_Qwen_Coder',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='qwen/qwen-2.5-coder-32b-instruct:free',  # ✅ 修正
+                model='qwen/qwen-2.5-coder-32b-instruct:free',
                 rpm_limit=20,
                 daily_limit=200,
                 priority=3
@@ -219,9 +219,9 @@ class MultiAPIManager:
                 priority=3
             ))
         
-        print(f"\n✅ 已配置 {len(self.providers)} 個 API 提供商 (2026 年 3 月正確模型)")
+        print(f"\n[OK] 已配置 {len(self.providers)} 個 API 提供商 (2026 年 3 月正確模型)")
         for p in self.providers:
-            status = "🚀" if p.priority == 5 else "✅"
+            status = "[HIGH]" if p.priority == 5 else "[OK]"
             print(f"  {status} {p.name}: {p.model} (優先級 {p.priority})")
     
     def get_available_provider(self, purpose: str = 'general') -> Optional[APIProvider]:
@@ -260,7 +260,7 @@ class MultiAPIManager:
             if provider.can_request():
                 return provider
         
-        print("⚠️ 所有 API 提供商都不可用")
+        print("[WARN] 所有 API 提供商都不可用")
         return None
     
     def save_config(self):
@@ -302,9 +302,9 @@ class MultiAPIManager:
                 })
                 self.providers.append(provider)
             
-            print(f"✅ 從 {self.config_file} 載入配置")
+            print(f"[OK] 從 {self.config_file} 載入配置")
         except Exception as e:
-            print(f"⚠️ 載入配置失敗: {e}")
+            print(f"[WARN] 載入配置失敗: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """獲取使用統計"""
