@@ -1,6 +1,7 @@
 """
 API 路由 - AI 聊天室風格分析介面
 左邊顯示三個 AI 的完整輸出，右邊顯示我們給 AI 的 prompt
+新增: LINE 風格聊天室介面
 """
 from flask import jsonify, render_template
 import json
@@ -11,8 +12,8 @@ def register_ai_chat_routes(app, app_state):
     
     @app.route('/ai-chat')
     def ai_chat_page():
-        """渲染 AI 聊天室介面"""
-        return render_template('ai_chat.html')
+        """渲染 LINE 風格 AI 聊天室介面"""
+        return render_template('ai_chat_line_style.html')
     
     @app.route('/api/ai-chat-data', methods=['GET'])
     def get_ai_chat_data():
@@ -149,3 +150,5 @@ def register_ai_chat_routes(app, app_state):
                 'success': False,
                 'error': str(e)
             }), 500
+
+    print("[OK] AI 聊天室 API 路由已註冊 (LINE 風格)")
