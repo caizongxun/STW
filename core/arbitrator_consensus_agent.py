@@ -153,15 +153,23 @@ class ArbitratorConsensusAgent:
             )
             print("✅ 快速模型 A: DeepSeek R1 (OpenRouter) - 推理能力強")
         
-        # Fast Model B: 優先 OpenRouter DeepSeek V3，備用 Gemini
+        # Fast Model B: 優先 OpenRouter DeepSeek V3，備用 Llama 70B
         if os.getenv('OPENROUTER_API_KEY'):
             self.fast_model_b = OpenAICompatibleModel(
                 name='DeepSeek_V3',
                 api_key=os.getenv('OPENROUTER_API_KEY'),
                 base_url='https://openrouter.ai/api/v1',
-                model='deepseek/deepseek-chat:free'
+                model='deepseek/deepseek-chat'  # 正確的 ID
             )
             print("✅ 快速模型 B: DeepSeek V3 (OpenRouter) - 通用強")
+        elif os.getenv('GROQ_API_KEY'):
+            self.fast_model_b = OpenAICompatibleModel(
+                name='Llama_70B_Backup',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='llama-3.3-70b-versatile'
+            )
+            print("✅ 快速模型 B: Llama 3.3 70B (Groq) - 備用")
         elif os.getenv('GOOGLE_API_KEY'):
             self.fast_model_b = GeminiModel(
                 name='Gemini_2_Flash',
