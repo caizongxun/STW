@@ -11,8 +11,9 @@ import time
 from datetime import datetime
 import json
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import uuid
+import pandas as pd
 
 from core.realtime_data_loader import RealtimeDataLoader
 from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
@@ -148,7 +149,38 @@ def save_cases():
         return False
 
 
-def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optional[Dict]):
+def _prepare_historical_candles(df: pd.DataFrame, num_candles: int = 20) -> List[Dict]:
+    """準備歷史 K 棒數據"""
+    candles = df.tail(num_candles)[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+    
+    # 計算顏色和影線
+    result = []
+    for idx, row in candles.iterrows():
+        candle_info = {
+            'timestamp': row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+            'open': float(row['open']),
+            'high': float(row['high']),
+            'low': float(row['low']),
+            'close': float(row['close']),
+            'volume': float(row['volume']),
+            'color': 'green' if row['close'] >= row['open'] else 'red',
+            'body_size': abs(row['close'] - row['open']),
+            'upper_shadow': row['high'] - max(row['open'], row['close']),
+            'lower_shadow': min(row['open'], row['close']) - row['low'],
+            'change_pct': ((row['close'] - row['open']) / row['open'] * 100) if row['open'] > 0 else 0
+        }
+        result.append(candle_info)
+    
+    return result
+
+
+def _get_ai_decision(
+    market_data: Dict,
+    account_info: Dict,
+    position_info: Optional[Dict],
+    historical_candles: Optional[List[Dict]] = None,
+    successful_cases: Optional[List[Dict]] = None
+):
     """獲取 AI 決策（單模型/雙模型/兩階段仲裁）"""
     
     # 優先檢查兩階段仲裁
@@ -160,7 +192,9 @@ def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optio
         result = app_state['arbitrator_agent'].analyze_with_arbitration(
             market_data=market_data,
             account_info=account_info,
-            position_info=position_info
+            position_info=position_info,
+            historical_candles=historical_candles,
+            successful_cases=successful_cases
         )
         result['model_type'] = 'arbitrator'
         return result
@@ -174,8 +208,7 @@ def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optio
         decision = app_state['dual_agent'].analyze_with_dual_models(
             market_data=market_data,
             account_info=account_info,
-            position_info=position_info,
-            mode=app_state['dual_model_mode']
+            position_info=position_info
         )
         decision['model_type'] = 'dual'
         return decision
@@ -398,6 +431,7 @@ def analyze_market():
             return jsonify({'error': '數據不足，至少需要 200 根 K 線'}), 400
         
         latest_data = prepare_market_features(df.iloc[-1], df)
+        historical_candles = _prepare_historical_candles(df, num_candles=20)
         
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
@@ -411,7 +445,13 @@ def analyze_market():
             }
             position_info = None
         
-        decision = _get_ai_decision(latest_data, account_info, position_info)
+        decision = _get_ai_decision(
+            market_data=latest_data,
+            account_info=account_info,
+            position_info=position_info,
+            historical_candles=historical_candles,
+            successful_cases=app_state['cases'][:10]  # 最多傳 10 個案例
+        )
         
         latest_price = float(df['close'].iloc[-1])
         timestamp = df['timestamp'].iloc[-1]
@@ -436,6 +476,8 @@ def analyze_market():
         
         print(f"[ANALYZE] Latest price: ${latest_price:,.2f}")
         print(f"[ANALYZE] Model type: {decision.get('model_type', 'unknown')}")
+        print(f"[ANALYZE] Provided {len(historical_candles)} historical candles")
+        print(f"[ANALYZE] Provided {len(app_state['cases'][:10])} successful cases")
         
         return jsonify(app_state['latest_signal'])
         
@@ -499,6 +541,7 @@ def update_ai_log():
         
         current_candle = df.iloc[-1]
         market_data = prepare_market_features(current_candle, df)
+        historical_candles = _prepare_historical_candles(df, num_candles=20)
         
         if app_state['bybit_trader']:
             account_info = app_state['bybit_trader'].get_account_info()
@@ -512,7 +555,13 @@ def update_ai_log():
             }
             position_info = None
         
-        decision = _get_ai_decision(market_data, account_info, position_info)
+        decision = _get_ai_decision(
+            market_data=market_data,
+            account_info=account_info,
+            position_info=position_info,
+            historical_candles=historical_candles,
+            successful_cases=app_state['cases'][:10]
+        )
         
         _save_ai_prediction_log(
             timestamp=current_candle['timestamp'],
@@ -639,10 +688,17 @@ def bybit_trading_worker(config):
             if df is not None and len(df) > 200:
                 current_candle = df.iloc[-1]
                 market_data = prepare_market_features(current_candle, df)
+                historical_candles = _prepare_historical_candles(df, num_candles=20)
                 account_info = trader.get_account_info()
                 position_info = trader.get_position()
                 
-                decision = _get_ai_decision(market_data, account_info, position_info)
+                decision = _get_ai_decision(
+                    market_data=market_data,
+                    account_info=account_info,
+                    position_info=position_info,
+                    historical_candles=historical_candles,
+                    successful_cases=app_state['cases'][:10]
+                )
                 
                 _save_ai_prediction_log(
                     timestamp=current_candle['timestamp'],
