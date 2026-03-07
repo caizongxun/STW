@@ -37,6 +37,7 @@ import os
 from typing import Dict, Optional, List
 import requests
 import time
+import re
 
 # 導入強健 JSON 解析器
 try:
@@ -298,18 +299,30 @@ class TradingExecutorAgent:
                 raw_content = result['content']
                 self.last_raw_response = raw_content  # 儲存完整回應
                 
+                # 檢測是否可能被截斷
+                is_truncated = self._detect_truncation(raw_content)
+                
+                if is_truncated:
+                    print(f"\n[WARNING] 檢測到輸出可能被截斷 (長度: {len(raw_content)} 字元)")
+                    print(f"[INFO] 嘗試智能推斷...")
+                
                 # 嘗試解析
                 review = self._parse_review(raw_content)
                 
-                # 檢查是否解析失敗
-                if review['execution_decision'] == 'REJECT' and '解析失敗' in review['reasoning']:
-                    print("\n" + "="*70)
-                    print("[ERROR] 解析失敗 - AI 審核員完整回應:")
-                    print("="*70)
-                    # 分段打印，每 500 字一段
-                    for i in range(0, len(raw_content), 500):
-                        print(raw_content[i:i+500])
-                    print("="*70 + "\n")
+                # 如果解析失敗且檢測到截斷，嘗試智能推斷
+                if review['execution_decision'] == 'REJECT' and '解析失敗' in review['reasoning'] and is_truncated:
+                    inferred = self._infer_from_truncated(raw_content, arbitrator_decision)
+                    if inferred:
+                        print(f"[OK] 智能推斷成功: {inferred['execution_decision']}")
+                        review = inferred
+                    else:
+                        print("[WARNING] 智能推斷失敗，使用解析失敗的結果")
+                        print("\n" + "="*70)
+                        print("[ERROR] AI 審核員完整回應:")
+                        print("="*70)
+                        for i in range(0, len(raw_content), 500):
+                            print(raw_content[i:i+500])
+                        print("="*70 + "\n")
                 
                 # 應用審核結果
                 if review['execution_decision'] == 'EXECUTE':
@@ -337,6 +350,85 @@ class TradingExecutorAgent:
             traceback.print_exc()
             return None
     
+    def _detect_truncation(self, content: str) -> bool:
+        """檢測輸出是否可能被截斷"""
+        # 檢查是否以不完整的句子結尾
+        truncation_indicators = [
+            r'符合執行$',  # 以「符合執行」結尾
+            r'信心度[:：]\s*\d+%\s*\($',  # 信心度後面只有左括號
+            r'[^。！？\n]$',  # 不是以句號、感嘆號、問號或換行結尾
+            r'\*\*[^\*]*$',  # 未閉合的 markdown 粗體
+            r'[-\d]+\.$',  # 以數字+點結尾（列表未完成）
+        ]
+        
+        for pattern in truncation_indicators:
+            if re.search(pattern, content.strip()):
+                return True
+        
+        # 檢查是否有未閉合的 JSON
+        if '{' in content and content.count('{') > content.count('}'):
+            return True
+        
+        return False
+    
+    def _infer_from_truncated(self, content: str, arbitrator_decision: Dict) -> Optional[Dict]:
+        """從截斷的輸出智能推斷決策"""
+        content_lower = content.lower()
+        
+        # 提取信心度
+        confidence = arbitrator_decision.get('confidence', 0)
+        confidence_match = re.search(r'信心度[:：]?\s*(\d+)\s*%', content)
+        if confidence_match:
+            confidence = int(confidence_match.group(1))
+        
+        # 推斷執行決策
+        execution_decision = None
+        reasoning = "智能推斷: "
+        
+        # 檢查明確的執行/拒絕關鍵詞
+        if re.search(r'(符合|可以|建議|應該)執行', content):
+            execution_decision = 'EXECUTE'
+            reasoning += f"發現「符合執行」關鍵詞，信心度 {confidence}%"
+        elif re.search(r'(拒絕|不建議|不應該|不符合)執行', content):
+            execution_decision = 'REJECT'
+            reasoning += "發現「拒絕執行」關鍵詞"
+        elif re.search(r'減少.*倉位', content) or re.search(r'謹慎.*執行', content):
+            execution_decision = 'REDUCE_SIZE'
+            reasoning += "發現「減少倉位」或「謹慎執行」關鍵詞"
+        
+        # 基於信心度推斷
+        if not execution_decision:
+            is_counter_trend = arbitrator_decision.get('is_counter_trend', False)
+            
+            if is_counter_trend:
+                if confidence >= 70:
+                    execution_decision = 'EXECUTE'
+                    reasoning += f"逆勢操作，信心度 {confidence}% >= 70%"
+                else:
+                    execution_decision = 'REJECT'
+                    reasoning += f"逆勢操作信心度不足 ({confidence}% < 70%)"
+            else:
+                if confidence >= 60:
+                    execution_decision = 'EXECUTE'
+                    reasoning += f"信心度 {confidence}% >= 60%"
+                elif confidence >= 50:
+                    execution_decision = 'REDUCE_SIZE'
+                    reasoning += f"信心度中等 ({confidence}%)，減少倉位"
+                else:
+                    execution_decision = 'REJECT'
+                    reasoning += f"信心度不足 ({confidence}% < 50%)"
+        
+        if execution_decision:
+            return {
+                'execution_decision': execution_decision,
+                'confidence_adjustment': 0,
+                'position_size_ratio': 0.5 if execution_decision == 'REDUCE_SIZE' else 1.0,
+                'reasoning': reasoning,
+                'risk_factors': ['輸出截斷-智能推斷']
+            }
+        
+        return None
+    
     def _call_gemini(self, system_prompt: str, user_prompt: str) -> Dict:
         try:
             import google.generativeai as genai
@@ -349,7 +441,7 @@ class TradingExecutorAgent:
                 full_prompt,
                 generation_config=genai.GenerationConfig(
                     temperature=0.1,
-                    max_output_tokens=2000
+                    max_output_tokens=4000  # 增加到 4000
                 )
             )
             elapsed = time.time() - start_time
@@ -372,7 +464,7 @@ class TradingExecutorAgent:
                     {'role': 'user', 'content': user_prompt}
                 ],
                 'temperature': 0.1,
-                'max_tokens': 2000
+                'max_tokens': 4000  # 增加到 4000
             }
             
             start_time = time.time()
