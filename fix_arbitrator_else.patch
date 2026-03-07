@@ -1,0 +1,90 @@
+# Patch for arbitrator_consensus_agent.py
+# 修復 else 分支缺少 raw_content 的問題
+
+## 位置：第 780-798 行
+
+### 原代碼（有問題）：
+
+```python
+            # 儲存執行審核員的回應
+            if hasattr(self.trading_executor, 'last_raw_response'):
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'raw_content': self.trading_executor.last_raw_response,
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                }
+            else:
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                    # ❌ 缺少 'raw_content' ！
+                }
+```
+
+### 修復後代碼：
+
+```python
+            # 儲存執行審核員的回應
+            if hasattr(self.trading_executor, 'last_raw_response') and self.trading_executor.last_raw_response:
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'raw_content': self.trading_executor.last_raw_response,
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                }
+            else:
+                # 當沒有 last_raw_response 時，使用 executor_reasoning 作為顯示內容
+                executor_content = execution_review.get('executor_reasoning', '執行審核員回應')
+                self.last_analysis_detail['model_responses']['executor'] = {
+                    'raw_content': executor_content,  # ✅ 確保前端可以顯示
+                    'execution_decision': execution_review['execution_decision'],
+                    'final_action': execution_review['final_action'],
+                    'adjusted_confidence': execution_review['adjusted_confidence'],
+                    'reasoning': execution_review['executor_reasoning']
+                }
+```
+
+## 關鍵修改：
+
+1. **第 781 行**: 修改 if 條件
+   ```python
+   # 原：if hasattr(self.trading_executor, 'last_raw_response'):
+   # 新：if hasattr(self.trading_executor, 'last_raw_response') and self.trading_executor.last_raw_response:
+   ```
+
+2. **第 791 行**: 在 else 分支開頭添加
+   ```python
+   # 當沒有 last_raw_response 時，使用 executor_reasoning 作為顯示內容
+   executor_content = execution_review.get('executor_reasoning', '執行審核員回應')
+   ```
+
+3. **第 793 行**: 在 dict 中添加
+   ```python
+   'raw_content': executor_content,  # 確保前端可以顯示
+   ```
+
+## 為什麼需要這個修復？
+
+前端代碼 `api_routes_ai_chat.py` 第 138 行：
+```python
+content = model_resp.get('raw_content', model_resp.get('reasoning', '無內容'))
+```
+
+當 `raw_content` 不存在時，會回退到 `reasoning`，但如果兩者都沒有，就會顯示「無內容」。
+
+這個修復確保 `else` 分支也有 `raw_content`，前端就能正常顯示了。
+
+## 手動應用步驟：
+
+1. 打開 `core/arbitrator_consensus_agent.py`
+2. 跳到第 781 行
+3. 複製上面的「修復後代碼」
+4. 替換第 780-798 行
+5. 保存文件
+6. 重啟 Streamlit 應用
+7. 測試 AI 聊天室是否顯示 Executor 內容
