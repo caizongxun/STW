@@ -1,13 +1,13 @@
 /**
  * 懸浮球聊天室樣式
- * 與網頁整體風格一致，添加美觀的動畫效果
+ * 固定在整體網頁右下角，不受頁面滾動影響
  */
 
-/* 懸浮球按鈕 */
+/* 懸浮球按鈕 - 固定在整體網頁右下角 */
 .floating-chat-button {
-    position: fixed;
-    bottom: 32px;
-    right: 32px;
+    position: fixed !important;
+    bottom: 32px !important;
+    right: 32px !important;
     width: 64px;
     height: 64px;
     border-radius: 50%;
@@ -19,9 +19,8 @@
     align-items: center;
     justify-content: center;
     color: white;
-    z-index: 9998;
+    z-index: 99999 !important; /* 最高層級 */
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
 }
 
 .floating-chat-button:hover {
@@ -51,10 +50,10 @@
     background: #ff4757;
     border-radius: 50%;
     border: 2px solid white;
-    animation: pulse 2s infinite;
+    animation: pulse-dot 2s infinite;
 }
 
-@keyframes pulse {
+@keyframes pulse-dot {
     0%, 100% {
         transform: scale(1);
         opacity: 1;
@@ -65,17 +64,19 @@
     }
 }
 
-/* 聊天室視窗 */
+/* 聊天室視窗 - 固定在懸浮球上方 */
 .floating-chat-window {
-    position: fixed;
-    bottom: 110px;
-    right: 32px;
+    position: fixed !important;
+    bottom: 110px !important;
+    right: 32px !important;
     width: 420px;
+    max-width: calc(100vw - 64px);
     height: 600px;
+    max-height: calc(100vh - 140px);
     background: rgba(20, 30, 50, 0.98);
     border-radius: 16px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-    z-index: 9999;
+    z-index: 99998 !important; /* 略低於按鈕 */
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -84,11 +85,13 @@
     transform: translateY(20px) scale(0.9);
     opacity: 0;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
 }
 
 .floating-chat-window.open {
     transform: translateY(0) scale(1);
     opacity: 1;
+    pointer-events: auto;
 }
 
 /* 標題欄 */
@@ -100,6 +103,7 @@
     align-items: center;
     color: white;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
 }
 
 .header-left {
@@ -150,6 +154,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .chat-messages {
@@ -381,24 +386,56 @@
     word-wrap: break-word;
 }
 
-/* 響應式設計 */
+/* 響應式設計 - 手機 */
 @media (max-width: 768px) {
     .floating-chat-button {
-        width: 56px;
-        height: 56px;
-        bottom: 24px;
-        right: 24px;
+        width: 56px !important;
+        height: 56px !important;
+        bottom: 20px !important;
+        right: 20px !important;
     }
     
     .floating-chat-window {
-        width: calc(100vw - 32px);
-        height: calc(100vh - 120px);
-        bottom: 90px;
-        right: 16px;
+        width: calc(100vw - 32px) !important;
+        height: calc(100vh - 100px) !important;
+        max-height: calc(100vh - 100px) !important;
+        bottom: 86px !important;
+        right: 16px !important;
+        left: 16px !important;
+    }
+    
+    .user-message .message-bubble {
+        margin-left: 20px;
+    }
+    
+    .ai-message .message-bubble {
+        margin-right: 20px;
     }
 }
 
-/* 動畫優化 */
+/* 平板尺寸 */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .floating-chat-window {
+        width: 380px;
+        height: 550px;
+    }
+}
+
+/* 小螢幕手機 */
+@media (max-width: 375px) {
+    .floating-chat-button {
+        width: 52px !important;
+        height: 52px !important;
+        bottom: 16px !important;
+        right: 16px !important;
+    }
+    
+    .floating-chat-window {
+        bottom: 78px !important;
+    }
+}
+
+/* 動畫優化 - 減少動作偏好 */
 @media (prefers-reduced-motion: reduce) {
     .floating-chat-button,
     .floating-chat-window,
@@ -406,4 +443,14 @@
         animation: none;
         transition: none;
     }
+    
+    .notification-dot {
+        animation: none;
+    }
+}
+
+/* 確保在所有容器之上 */
+body .floating-chat-button,
+body .floating-chat-window {
+    z-index: 99999 !important;
 }
