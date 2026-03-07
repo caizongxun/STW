@@ -5,30 +5,181 @@
 - 智能風控決策
 - 重試機制
 - 波段交易策略
+- 多 API 輪轉支持
 """
 import json
 import re
 import time
+import os
 from typing import Dict, Optional, List
-from langchain_ollama import OllamaLLM
+
+try:
+    from core.multi_api_manager import MultiAPIManager
+    HAS_MULTI_API = True
+except ImportError:
+    HAS_MULTI_API = False
+    print("警告: 未找到 MultiAPIManager，將使用 Ollama")
+
+try:
+    from langchain_ollama import OllamaLLM
+    HAS_OLLAMA = True
+except ImportError:
+    HAS_OLLAMA = False
+
+try:
+    import google.generativeai as genai
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
 
 
 class PositionAwareDeepSeekAgent:
     """
     倉位感知版 DeepSeek 引擎
     支持波段交易和趨勢追蹤
+    支持多 API 輪轉 (Gemini, Groq, OpenRouter, Ollama)
     """
     
     def __init__(self, model_name: str = "deepseek-r1:14b", max_retries: int = 3):
-        self.model = OllamaLLM(
-            model=model_name,
-            temperature=0.1,
-            num_predict=2048
-        )
+        self.model_name = model_name
         self.max_retries = max_retries
         self.position_history: List[Dict] = []  # 持倉歷史
         self.last_signal: Optional[str] = None  # 上次訊號
         self.trend_direction: Optional[str] = None  # 當前趨勢
+        
+        # 初始化 API 管理器
+        self.api_manager = None
+        self.ollama_model = None
+        
+        if HAS_MULTI_API:
+            try:
+                self.api_manager = MultiAPIManager()
+                if len(self.api_manager.providers) > 0:
+                    print(f"✅ 多 API 管理器已启用: {len(self.api_manager.providers)} 個 API")
+                else:
+                    print("⚠️ 沒有可用的免費 API，嘗試使用 Ollama...")
+                    self.api_manager = None
+            except Exception as e:
+                print(f"⚠️ 多 API 初始化失敗: {e}，嘗試使用 Ollama...")
+                self.api_manager = None
+        
+        # 如果沒有多 API，使用 Ollama
+        if not self.api_manager and HAS_OLLAMA:
+            try:
+                self.ollama_model = OllamaLLM(
+                    model=model_name,
+                    temperature=0.1,
+                    num_predict=2048
+                )
+                print(f"✅ 使用 Ollama 本地模型: {model_name}")
+            except Exception as e:
+                print(f"❌ Ollama 初始化失敗: {e}")
+                raise RuntimeError("沒有可用的 AI 模型，請配置免費 API 或安裝 Ollama")
+    
+    def _call_llm(self, prompt: str, purpose: str = 'position') -> str:
+        """調用 LLM（多 API 或 Ollama）"""
+        
+        # 優先使用多 API 管理器
+        if self.api_manager:
+            provider = self.api_manager.get_available_provider(purpose=purpose)
+            
+            if provider:
+                try:
+                    print(f"🤖 使用 API: {provider.name} ({provider.model})")
+                    
+                    provider.record_request()
+                    
+                    # Google Gemini
+                    if provider.name.startswith('Google') and HAS_GEMINI:
+                        response = self._call_gemini(prompt, provider)
+                    
+                    # 其他 OpenAI 相容 API (Groq, OpenRouter, GitHub)
+                    else:
+                        response = self._call_openai_compatible(prompt, provider)
+                    
+                    provider.record_success()
+                    return response
+                    
+                except Exception as e:
+                    print(f"❌ {provider.name} 請求失敗: {e}")
+                    provider.record_failure()
+                    # 嘗試下一個 API
+                    return self._call_llm_fallback(prompt)
+        
+        # 備用: 使用 Ollama
+        if self.ollama_model:
+            print(f"🤖 使用 Ollama: {self.model_name}")
+            return self.ollama_model.invoke(prompt)
+        
+        raise RuntimeError("所有 API 都不可用")
+    
+    def _call_llm_fallback(self, prompt: str) -> str:
+        """備用 LLM 調用（當首選 API 失敗）"""
+        if self.api_manager:
+            # 嘗試下一個可用的 API
+            for provider in self.api_manager.providers:
+                if provider.can_request():
+                    try:
+                        print(f"🔄 嘗試備用 API: {provider.name}")
+                        provider.record_request()
+                        
+                        if provider.name.startswith('Google') and HAS_GEMINI:
+                            response = self._call_gemini(prompt, provider)
+                        else:
+                            response = self._call_openai_compatible(prompt, provider)
+                        
+                        provider.record_success()
+                        return response
+                    except:
+                        provider.record_failure()
+                        continue
+        
+        # 最後嘗試 Ollama
+        if self.ollama_model:
+            return self.ollama_model.invoke(prompt)
+        
+        raise RuntimeError("所有 API 都失敗")
+    
+    def _call_gemini(self, prompt: str, provider) -> str:
+        """調用 Google Gemini API"""
+        genai.configure(api_key=provider.api_key)
+        model = genai.GenerativeModel(provider.model)
+        response = model.generate_content(prompt)
+        return response.text
+    
+    def _call_openai_compatible(self, prompt: str, provider) -> str:
+        """調用 OpenAI 相容 API (Groq, OpenRouter, GitHub)"""
+        import requests
+        
+        headers = {
+            'Authorization': f'Bearer {provider.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        # GitHub Models 特殊處理
+        if provider.name.startswith('GitHub'):
+            headers['Authorization'] = f'token {provider.api_key}'
+        
+        data = {
+            'model': provider.model,
+            'messages': [
+                {'role': 'user', 'content': prompt}
+            ],
+            'temperature': 0.1,
+            'max_tokens': 2048
+        }
+        
+        # OpenRouter 特殊處理
+        if provider.name.startswith('OpenRouter'):
+            data['route'] = 'fallback'
+        
+        url = f"{provider.base_url}/chat/completions"
+        
+        response = requests.post(url, headers=headers, json=data, timeout=60)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result['choices'][0]['message']['content']
     
     def analyze_with_position(
         self,
@@ -44,7 +195,7 @@ class PositionAwareDeepSeekAgent:
                 print(f"AI 分析嘗試 {attempt + 1}/{self.max_retries}...")
                 
                 prompt = self._build_prompt(market_data, account_info, position_info)
-                response = self.model.invoke(prompt)
+                response = self._call_llm(prompt, purpose='position')
                 
                 # 清理回應
                 response = self._clean_response(response)
