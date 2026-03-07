@@ -10,6 +10,232 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/floating_chat.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <style>
+        /* AI 聊天室 Panel 樣式 */
+        .ai-chat-panel {
+            margin-top: 24px;
+            background: rgba(30, 40, 60, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+        }
+
+        .ai-chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.5);
+        }
+
+        .ai-chat-header h3 {
+            margin: 0;
+            color: #667eea;
+            font-size: 18px;
+        }
+
+        .ai-chat-toggle {
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid #667eea;
+            color: #667eea;
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .ai-chat-toggle:hover {
+            background: rgba(102, 126, 234, 0.4);
+        }
+
+        .ai-chat-content {
+            display: grid;
+            grid-template-columns: 60% 40%;
+            gap: 20px;
+            min-height: 300px;
+        }
+
+        .ai-responses {
+            background: rgba(20, 30, 50, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+
+        .ai-prompt-info {
+            background: rgba(15, 25, 45, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+
+        .chat-message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .model-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-model-a {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+        }
+
+        .badge-model-b {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+        }
+
+        .badge-arbitrator {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+        }
+
+        .badge-executor {
+            background: linear-gradient(135deg, #e67e22, #d35400);
+        }
+
+        .message-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid;
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        .bubble-model-a {
+            border-left-color: #3498db;
+        }
+
+        .bubble-model-b {
+            border-left-color: #2ecc71;
+        }
+
+        .bubble-arbitrator {
+            border-left-color: #9b59b6;
+        }
+
+        .bubble-executor {
+            border-left-color: #e67e22;
+        }
+
+        .decision-summary {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .decision-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .decision-row:last-child {
+            border-bottom: none;
+        }
+
+        .decision-label {
+            color: #aaa;
+            font-size: 13px;
+        }
+
+        .decision-value {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .action-OPEN_LONG {
+            color: #2ecc71;
+        }
+
+        .action-OPEN_SHORT {
+            color: #e74c3c;
+        }
+
+        .action-HOLD {
+            color: #f39c12;
+        }
+
+        .action-CLOSE {
+            color: #3498db;
+        }
+
+        .prompt-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .prompt-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+            overflow-x: auto;
+            max-height: 200px;
+        }
+
+        .code-block pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .ai-chat-empty {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* 隐藏/顯示动效 */
+        .ai-chat-panel.collapsed .ai-chat-content {
+            display: none;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -138,6 +364,26 @@
                     </div>
                 </div>
                 
+                <!-- AI 聊天室 Panel -->
+                <div class="ai-chat-panel" id="aiChatPanel" style="display: none;">
+                    <div class="ai-chat-header">
+                        <h3>🤖 AI 分析實時對話</h3>
+                        <button class="ai-chat-toggle" id="aiChatToggle">收起</button>
+                    </div>
+                    <div class="ai-chat-content" id="aiChatContent">
+                        <div class="ai-responses">
+                            <div id="aiResponsesContainer" class="ai-chat-empty">
+                                <p>點擊「獲取實時訊號」後，這裡將顯示所有 AI 模型的完整回應</p>
+                            </div>
+                        </div>
+                        <div class="ai-prompt-info">
+                            <div id="aiPromptContainer" class="ai-chat-empty">
+                                <p>顯示 Prompt 與決策資訊</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div id="backtestResults" class="card" style="display: none;">
                     <div class="card-loading" id="backtestCardLoading">
                         <div>
@@ -151,9 +397,493 @@
                 </div>
             </div>
             
-            <!-- 其他 Tab 內容省略... -->
-            <!-- ... -->
+            <!-- 自動更新 -->
+            <div class="tab-content" id="auto-tab">
+                <div class="card">
+                    <div class="card-loading" id="autoUpdateCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>自動更新 AI 分析</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>定時自動執行 AI 分析 (預設 15 分鐘)</li>
+                            <li>自動記錄每次預測到 AI 預測記錄</li>
+                            <li>可配合 Bybit 自動交易使用</li>
+                            <li>支持自定義更新頻率</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="autoUpdateSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>K 線周期</label>
+                            <select id="autoUpdateTimeframe" class="form-control">
+                                <option value="15m" selected>15m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>更新頻率</label>
+                            <select id="autoUpdateFrequency" class="form-control">
+                                <option value="300000">5 分鐘</option>
+                                <option value="900000" selected>15 分鐘</option>
+                                <option value="1800000">30 分鐘</option>
+                                <option value="3600000">1 小時</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>啟用自動更新</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="autoUpdateToggle">
+                            <label for="autoUpdateToggle"></label>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-grid" style="margin-top: 24px;">
+                        <div class="stat-card">
+                            <div class="stat-label">上次更新</div>
+                            <div class="stat-value" id="lastUpdateTime">N/A</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">下次更新</div>
+                            <div class="stat-value" id="nextUpdateTime">N/A</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">更新次數</div>
+                            <div class="stat-value" id="updateCount">0</div>
+                        </div>
+                    </div>
+                    
+                    <div id="autoUpdateStatus"></div>
+                </div>
+            </div>
             
+            <!-- Bybit Demo -->
+            <div class="tab-content" id="bybit-tab">
+                <div class="card">
+                    <div class="card-loading" id="bybitCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>Bybit Demo 交易</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>AI 能讀取當前倉位、本金、浮盈浮虧</li>
+                            <li>根據市場波動度動態調整桶杆 (1-10x)</li>
+                            <li>支持多種操作：開倉/平倉/加倉/減倉/觀望</li>
+                            <li>智能風控：不超過可用餘額的 30%</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>API Key</label>
+                            <input type="password" id="bybitApiKey" class="form-control" placeholder="輸入 Bybit API Key">
+                        </div>
+                        <div class="form-group">
+                            <label>API Secret</label>
+                            <input type="password" id="bybitApiSecret" class="form-control" placeholder="輸入 API Secret">
+                        </div>
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="bybitSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="bybitTestBtn" class="btn btn-secondary">測試連線</button>
+                        <button id="bybitStartBtn" class="btn btn-success">啟動交易</button>
+                        <button id="bybitStopBtn" class="btn btn-danger">停止交易</button>
+                    </div>
+                    
+                    <div id="bybitAccountInfo" class="stats-grid" style="margin-top: 24px; display: none;">
+                        <div class="stat-card">
+                            <div class="stat-label">總資產</div>
+                            <div class="stat-value" id="bybitTotalEquity">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">可用餘額</div>
+                            <div class="stat-value" id="bybitAvailable">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">未實現盈虧</div>
+                            <div class="stat-value" id="bybitPnl">$0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">持倉</div>
+                            <div class="stat-value" id="bybitPosition">無</div>
+                        </div>
+                    </div>
+                    
+                    <div id="bybitStatus" style="margin-top: 24px;"></div>
+                </div>
+            </div>
+            
+            <!-- AI 預測記錄 -->
+            <div class="tab-content" id="ai-log-tab">
+                <div class="card">
+                    <div class="card-loading" id="aiLogCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>AI 預測記錄 & 準確度分析</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>記錄每根 K 棒的 AI 預測結果</li>
+                            <li>對比預測 vs 實際走勢，計算準確率</li>
+                            <li>支持自動/手動更新</li>
+                            <li>保留近 100 筆記錄</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>交易對</label>
+                            <select id="aiLogSymbol" class="form-control">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>K 線周期</label>
+                            <select id="aiLogTimeframe" class="form-control">
+                                <option value="15m" selected>15m</option>
+                                <option value="1h">1h</option>
+                                <option value="4h">4h</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>自動更新</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="aiLogAutoUpdate">
+                                <label for="aiLogAutoUpdate"></label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="aiLogUpdateBtn" class="btn btn-primary">更新預測</button>
+                        <button id="aiLogClearBtn" class="btn btn-warning">清除記錄</button>
+                        <button id="aiLogExportBtn" class="btn btn-secondary">導出 CSV</button>
+                    </div>
+                    
+                    <div class="stats-grid" id="aiLogStats">
+                        <div class="stat-card">
+                            <div class="stat-label">總預測次數</div>
+                            <div class="stat-value" id="totalPredictions">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">已驗證次數</div>
+                            <div class="stat-value" id="verifiedPredictions">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">準確率</div>
+                            <div class="stat-value" id="accuracy">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">最常動作</div>
+                            <div class="stat-value" id="mostCommonAction">N/A</div>
+                        </div>
+                    </div>
+                    
+                    <div id="aiLogTable" class="table-container">
+                        <table id="logsTable">
+                            <thead>
+                                <tr>
+                                    <th>時間</th>
+                                    <th>價格</th>
+                                    <th>動作</th>
+                                    <th>信心度</th>
+                                    <th>預測方向</th>
+                                    <th>實際方向</th>
+                                    <th>結果</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logsTableBody">
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">尚無記錄</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 學習案例庫 -->
+            <div class="tab-content" id="cases-tab">
+                <div class="card">
+                    <div class="card-loading" id="casesCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>學習案例庫</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>儲存成功的交易案例，AI 可從中學習</li>
+                            <li>記錄入場/出場價格、技術指標、盈虧</li>
+                            <li>支持篩選、搜尋、標籤</li>
+                            <li>可導出/導入 JSON 檔案</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>搜尋</label>
+                            <input type="text" id="casesSearch" class="form-control" placeholder="搜尋交易對、理由或標籤...">
+                        </div>
+                        <div class="button-group">
+                            <button id="addCaseBtn" class="btn btn-success">添加案例</button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-buttons" style="margin: 16px 0;">
+                        <button class="filter-btn active" id="filterAll">全部</button>
+                        <button class="filter-btn" id="filterLong">做多</button>
+                        <button class="filter-btn" id="filterShort">做空</button>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">總案例數</div>
+                            <div class="stat-value" id="totalCases">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">平均盈虧</div>
+                            <div class="stat-value" id="avgProfit">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">勝率</div>
+                            <div class="stat-value" id="winRate">0%</div>
+                        </div>
+                    </div>
+                    
+                    <div id="casesList" class="cases-list">
+                        <p class="text-muted">正在載入案例...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 設定 -->
+            <div class="tab-content" id="config-tab">
+                <div class="card">
+                    <div class="card-loading" id="configCardLoading">
+                        <div>
+                            <div class="spinner"></div>
+                            <div class="card-loading-text">處理中...</div>
+                        </div>
+                    </div>
+                    
+                    <h3>系統設定</h3>
+                    
+                    <div class="info-banner">
+                        <ul>
+                            <li>配置 AI 模型參數</li>
+                            <li>設定 API 金鑰（加密存储）</li>
+                            <li>本地持久化，關閉後配置仍保留</li>
+                            <li>支持匯出/匯入配置</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 模型選擇器 -->
+                    <div id="model-selector-container"></div>
+                    
+                    <h4 style="margin-top: 24px;">兩階段仲裁決策 (NEW!)</h4>
+                    <div class="info-banner" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                        <p><strong>兩階段共識決策系統</strong></p>
+                        <ul style="color: rgba(255,255,255,0.9);">
+                            <li><strong>階段 1</strong>: 兩個快速模型 (Groq Llama 70B + Google Gemini 2.0) 同時分析</li>
+                            <li><strong>階段 2</strong>: 如果意見分歧，由第三個最強模型 (Llama 3.3 70B) 仲裁</li>
+                            <li>提高決策穩定性，減少單模型偏差</li>
+                            <li>網頁會顯示每個模型的分析結果</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <strong>啟用兩階段仲裁決策</strong>
+                            <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">推薦</span>
+                        </label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="useArbitratorConsensus">
+                            <label for="useArbitratorConsensus"></label>
+                        </div>
+                        <small class="form-text">啟用後，每次 AI 分析會調用 2-3 個模型進行共識決策</small>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">AI 設定</h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>模型</label>
+                            <select id="aiModel" class="form-control">
+                                <option value="deepseek-r1:14b">DeepSeek-R1 14B</option>
+                                <option value="deepseek-r1:7b">DeepSeek-R1 7B</option>
+                                <option value="deepseek-r1:32b">DeepSeek-R1 32B</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Temperature</label>
+                            <input type="number" id="aiTemperature" class="form-control" value="0.1" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Tokens</label>
+                            <input type="number" id="aiMaxTokens" class="form-control" value="2048" min="512" max="4096" step="256">
+                        </div>
+                        <div class="form-group">
+                            <label>信心度門檢</label>
+                            <input type="number" id="aiConfidenceThreshold" class="form-control" value="70" min="50" max="95">
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">多模型集成設定</h4>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label>啟用集成決策</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="enableEnsemble">
+                                <label for="enableEnsemble"></label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>最少模型數</label>
+                            <input type="number" id="minModels" class="form-control" value="2" min="1" max="5">
+                        </div>
+                        <div class="form-group">
+                            <label>最多模型數</label>
+                            <input type="number" id="maxModels" class="form-control" value="3" min="1" max="5">
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">免費 API 設定</h4>
+                    <div class="info-banner" style="background: #e3f2fd; border-left: 4px solid #2196F3;">
+                        <p>所有 API Keys 加密存储，關閉系統後仍保留。首次輸入後會顯示掩碼，無需每次重輸。</p>
+                    </div>
+                    
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Groq API Key (速度最快)</label>
+                            <input type="password" id="groqApiKey" class="form-control" placeholder="輸入 Groq API Key">
+                            <small class="form-text">注冊: https://console.groq.com</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Google Gemini API Key (推理最強)</label>
+                            <input type="password" id="googleApiKey" class="form-control" placeholder="輸入 Google API Key">
+                            <small class="form-text">注冊: https://aistudio.google.com</small>
+                        </div>
+                        <div class="form-group">
+                            <label>OpenRouter API Key (多模型)</label>
+                            <input type="password" id="openrouterApiKey" class="form-control" placeholder="輸入 OpenRouter Key">
+                            <small class="form-text">注冊: https://openrouter.ai</small>
+                        </div>
+                        <div class="form-group">
+                            <label>GitHub Token (選填)</label>
+                            <input type="password" id="githubToken" class="form-control" placeholder="輸入 GitHub Token">
+                            <small class="form-text">用於 GitHub Models</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Cloudflare Account ID (選填)</label>
+                            <input type="text" id="cloudflareAccountId" class="form-control" placeholder="輸入 Account ID">
+                            <small class="form-text">在 Workers 頁面右側找到</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Cloudflare API Key (選填)</label>
+                            <input type="password" id="cloudflareApiKey" class="form-control" placeholder="輸入 Cloudflare Key">
+                            <small class="form-text">高額度免費 API</small>
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 24px;">其他 API 設定</h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>DeepSeek API Key (選填)</label>
+                            <input type="password" id="deepseekApiKey" class="form-control" placeholder="選填">
+                        </div>
+                        <div class="form-group">
+                            <label>Binance API Key (選填)</label>
+                            <input type="password" id="binanceApiKey" class="form-control" placeholder="選填">
+                        </div>
+                    </div>
+                    
+                    <div class="button-group" style="margin-top: 24px;">
+                        <button id="saveConfigBtn" class="btn btn-primary">保存設定</button>
+                        <button id="testApisBtn" class="btn btn-success">測試 API 連接</button>
+                        <button id="resetConfigBtn" class="btn btn-warning">重設設定</button>
+                        <button id="exportConfigBtn" class="btn btn-secondary">匯出配置</button>
+                        <button id="importConfigBtn" class="btn btn-secondary">匯入配置</button>
+                    </div>
+                    
+                    <div id="configStatus"></div>
+                    
+                    <h4 style="margin-top: 24px;">API 使用統計</h4>
+                    <div id="apiStats"></div>
+                    
+                    <h4 style="margin-top: 24px;">通知設定</h4>
+                    <div class="form-group">
+                        <label>啟用通知</label>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="enableNotifications">
+                            <label for="enableNotifications"></label>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>通知信箱</label>
+                            <input type="email" id="notificationEmail" class="form-control" placeholder="your@email.com">
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>交易通知</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="notifyOnTrade">
+                                <label for="notifyOnTrade"></label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>錯誤通知</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="notifyOnError">
+                                <label for="notifyOnError"></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
     
