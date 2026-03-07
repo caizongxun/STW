@@ -1,76 +1,236 @@
 """
 雙模型決策系統
-使用兩個 AI 模型互相驗證，提高決策準確性
-- Model A: DeepSeek-R1 (推理強)
-- Model B: GPT-4o / Gemini (穩定性好)
+使用兩個**不同的優質模型**互相驗證，提高決策準確性
+- Model A: DeepSeek-R1 (推理能力強)
+- Model B: GPT-4o / Gemini 2.0 / Claude (穩定性好)
 """
 import json
 import time
+import os
 from typing import Dict, Optional, List, Tuple
-from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
+import requests
+
+
+class ModelInterface:
+    """模型接口 - 用於調用不同 API"""
+    
+    def __init__(self, name: str, api_key: str, base_url: str, model: str):
+        self.name = name
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+    
+    def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
+        """調用模型分析"""
+        raise NotImplementedError
+
+
+class OpenAICompatibleModel(ModelInterface):
+    """支持 OpenAI API 格式的模型 (Groq, OpenRouter, GitHub Models)"""
+    
+    def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'model': self.model,
+            'messages': [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt}
+            ],
+            'temperature': 0.3,
+            'max_tokens': 2000
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            
+            return {
+                'success': True,
+                'content': content,
+                'model': self.model
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'model': self.model
+            }
+
+
+class GeminiModel(ModelInterface):
+    """Google Gemini API"""
+    
+    def analyze(self, system_prompt: str, user_prompt: str) -> Dict:
+        try:
+            import google.generativeai as genai
+            
+            genai.configure(api_key=self.api_key)
+            model = genai.GenerativeModel(self.model)
+            
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response = model.generate_content(
+                full_prompt,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=2000
+                )
+            )
+            
+            return {
+                'success': True,
+                'content': response.text,
+                'model': self.model
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'model': self.model
+            }
 
 
 class DualModelDecisionAgent:
     """
     雙模型決策引擎
-    使用兩個模型獨立分析，然後比對結果
+    使用兩個**不同的優質模型**獨立分析，然後比對結果
     """
     
     def __init__(self):
-        # Model A: DeepSeek-R1 (使用現有 agent)
-        self.model_a = PositionAwareDeepSeekAgent()
-        
-        # Model B: 備用模型 (用于交叉驗證)
-        self.model_b = PositionAwareDeepSeekAgent()  # 會自動使用不同 API
-        
+        self.model_a = None  # DeepSeek-R1
+        self.model_b = None  # GPT-4o / Gemini / Claude
         self.decision_history: List[Dict] = []
+        
+        self._init_models()
+    
+    def _init_models(self):
+        """初始化兩個不同模型"""
+        
+        # Model A: DeepSeek-R1 (優先使用 Groq)
+        if os.getenv('GROQ_API_KEY'):
+            self.model_a = OpenAICompatibleModel(
+                name='Groq_DeepSeek_R1',
+                api_key=os.getenv('GROQ_API_KEY'),
+                base_url='https://api.groq.com/openai/v1',
+                model='deepseek-r1-distill-llama-70b'
+            )
+            print("✅ Model A: Groq DeepSeek-R1 Distill Llama 70B")
+        elif os.getenv('OPENROUTER_API_KEY'):
+            self.model_a = OpenAICompatibleModel(
+                name='OpenRouter_DeepSeek_R1',
+                api_key=os.getenv('OPENROUTER_API_KEY'),
+                base_url='https://openrouter.ai/api/v1',
+                model='deepseek/deepseek-r1:free'
+            )
+            print("✅ Model A: OpenRouter DeepSeek-R1")
+        else:
+            print("⚠️ Model A 未配置 (DeepSeek-R1)")
+        
+        # Model B: 選擇優質備用模型
+        if os.getenv('GITHUB_TOKEN'):
+            self.model_b = OpenAICompatibleModel(
+                name='GitHub_GPT4o_mini',
+                api_key=os.getenv('GITHUB_TOKEN'),
+                base_url='https://models.inference.ai.azure.com',
+                model='gpt-4o-mini'
+            )
+            print("✅ Model B: GitHub GPT-4o-mini")
+        elif os.getenv('GOOGLE_API_KEY'):
+            self.model_b = GeminiModel(
+                name='Google_Gemini_Flash',
+                api_key=os.getenv('GOOGLE_API_KEY'),
+                base_url='',
+                model='gemini-2.0-flash-exp'
+            )
+            print("✅ Model B: Google Gemini 2.0 Flash")
+        elif os.getenv('OPENROUTER_API_KEY'):
+            # 如果 Model A 用了 Groq，這裡用 OpenRouter 的其他模型
+            if self.model_a and self.model_a.name.startswith('Groq'):
+                self.model_b = OpenAICompatibleModel(
+                    name='OpenRouter_Claude',
+                    api_key=os.getenv('OPENROUTER_API_KEY'),
+                    base_url='https://openrouter.ai/api/v1',
+                    model='anthropic/claude-3.5-sonnet:beta'
+                )
+                print("✅ Model B: OpenRouter Claude 3.5 Sonnet")
+            else:
+                print("⚠️ Model B 與 Model A 重複")
+        else:
+            print("⚠️ Model B 未配置")
     
     def analyze_with_dual_models(
         self,
         market_data: Dict,
         account_info: Dict,
         position_info: Optional[Dict] = None,
-        mode: str = 'consensus'  # 'consensus', 'vote', 'weighted'
+        mode: str = 'consensus'
     ) -> Dict:
         """
         雙模型分析
-        
-        Args:
-            market_data: 市場數據
-            account_info: 帳戶資訊
-            position_info: 持倉資訊
-            mode: 決策模式
-                - 'consensus': 兩個模型必須一致
-                - 'vote': 簡單投票，一致則通過，不一致則 HOLD
-                - 'weighted': 加權決策，根據信心度加權
         """
+        if not self.model_a or not self.model_b:
+            print("⚠️ 雙模型未完全配置，降級為單模型")
+            # 降級使用單模型
+            from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
+            agent = PositionAwareDeepSeekAgent()
+            return agent.analyze_with_position(market_data, account_info, position_info)
+        
         print("\n" + "="*60)
         print("🔍 雙模型決策系統啟動")
+        print(f"Model A: {self.model_a.name} ({self.model_a.model})")
+        print(f"Model B: {self.model_b.name} ({self.model_b.model})")
         print("="*60)
         
-        # 模型 A 分析
-        print("\n🤖 Model A (DeepSeek-R1) 分析中...")
-        decision_a = self.model_a.analyze_with_position(
+        # 準備 prompt
+        system_prompt, user_prompt = self._prepare_prompts(
             market_data, account_info, position_info
         )
         
-        # 短暫延遲，避免 RPM 限制
+        # Model A 分析
+        print(f"\n🤖 {self.model_a.name} 分析中...")
+        result_a = self.model_a.analyze(system_prompt, user_prompt)
+        
+        if not result_a['success']:
+            print(f"❌ {self.model_a.name} 失敗: {result_a.get('error')}")
+            return self._fallback_decision(market_data, account_info, position_info)
+        
+        decision_a = self._parse_decision(result_a['content'])
+        print(f"✅ {self.model_a.name}: {decision_a['action']} (信心度 {decision_a['confidence']}%)")
+        
+        # 等待 2 秒避免 RPM 限制
         time.sleep(2)
         
-        # 模型 B 分析
-        print("\n🤖 Model B (備用模型) 分析中...")
-        decision_b = self.model_b.analyze_with_position(
-            market_data, account_info, position_info
-        )
+        # Model B 分析
+        print(f"\n🤖 {self.model_b.name} 分析中...")
+        result_b = self.model_b.analyze(system_prompt, user_prompt)
+        
+        if not result_b['success']:
+            print(f"❌ {self.model_b.name} 失敗: {result_b.get('error')}")
+            print(f"→ 使用 {self.model_a.name} 的決策")
+            return decision_a
+        
+        decision_b = self._parse_decision(result_b['content'])
+        print(f"✅ {self.model_b.name}: {decision_b['action']} (信心度 {decision_b['confidence']}%)")
         
         # 比對結果
         print("\n" + "="*60)
         print("⚡ 決策比對")
         print("="*60)
-        print(f"Model A: {decision_a['action']} (信心度 {decision_a['confidence']}%)")
-        print(f"  理由: {decision_a['reasoning']}")
-        print(f"\nModel B: {decision_b['action']} (信心度 {decision_b['confidence']}%)")
-        print(f"  理由: {decision_b['reasoning']}")
+        print(f"{self.model_a.name}: {decision_a['action']} ({decision_a['confidence']}%)")
+        print(f"  {decision_a['reasoning'][:100]}...")
+        print(f"\n{self.model_b.name}: {decision_b['action']} ({decision_b['confidence']}%)")
+        print(f"  {decision_b['reasoning'][:100]}...")
         
         # 根據模式決策
         if mode == 'consensus':
@@ -85,8 +245,16 @@ class DualModelDecisionAgent:
         # 記錄歷史
         self.decision_history.append({
             'timestamp': time.time(),
-            'model_a': decision_a,
-            'model_b': decision_b,
+            'model_a': {
+                'name': self.model_a.name,
+                'model': self.model_a.model,
+                'decision': decision_a
+            },
+            'model_b': {
+                'name': self.model_b.name,
+                'model': self.model_b.model,
+                'decision': decision_b
+            },
             'final': final_decision,
             'mode': mode
         })
@@ -96,21 +264,75 @@ class DualModelDecisionAgent:
         print("="*60)
         print(f"Action: {final_decision['action']}")
         print(f"Confidence: {final_decision['confidence']}%")
-        print(f"Reasoning: {final_decision['reasoning']}")
+        print(f"Reasoning: {final_decision['reasoning'][:150]}...")
         print("="*60 + "\n")
         
         return final_decision
     
+    def _prepare_prompts(self, market_data: Dict, account_info: Dict, position_info: Optional[Dict]) -> Tuple[str, str]:
+        """準備 system 和 user prompts"""
+        
+        system_prompt = """你是一個專業的加密貨幣交易 AI 分析師。
+你的任務是根據市場數據、賬戶資訊和持倉狀況，給出交易建議。
+
+輸出格式（必須是 JSON）：
+{
+  "action": "OPEN_LONG" | "OPEN_SHORT" | "CLOSE" | "HOLD",
+  "confidence": 0-100,
+  "leverage": 1-10,
+  "position_size_usdt": 數字,
+  "entry_price": 數字,
+  "stop_loss": 數字,
+  "take_profit": 數字,
+  "reasoning": "理由",
+  "risk_assessment": "LOW" | "MEDIUM" | "HIGH"
+}"""
+        
+        user_prompt = f"""市場數據：
+{json.dumps(market_data, indent=2, ensure_ascii=False)}
+
+賬戶資訊：
+{json.dumps(account_info, indent=2, ensure_ascii=False)}
+
+持倉資訊：
+{json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'}
+
+請分析並給出交易建議。"""
+        
+        return system_prompt, user_prompt
+    
+    def _parse_decision(self, content: str) -> Dict:
+        """解析模型輸出"""
+        try:
+            # 嘗試直接解析 JSON
+            if '{' in content and '}' in content:
+                start = content.index('{')
+                end = content.rindex('}') + 1
+                json_str = content[start:end]
+                decision = json.loads(json_str)
+                return decision
+            else:
+                raise ValueError("No JSON found")
+        except:
+            # 如果解析失敗，返回預設值
+            return {
+                'action': 'HOLD',
+                'confidence': 30,
+                'leverage': 1,
+                'position_size_usdt': 0,
+                'entry_price': 0,
+                'stop_loss': 0,
+                'take_profit': 0,
+                'reasoning': f'模型輸出解析失敗: {content[:100]}',
+                'risk_assessment': 'HIGH'
+            }
+    
     def _consensus_decision(self, decision_a: Dict, decision_b: Dict) -> Dict:
-        """
-        共識模式: 兩個模型必須完全一致
-        如果不一致，則返回 HOLD
-        """
+        """共識模式"""
         action_a = decision_a['action']
         action_b = decision_b['action']
         
         if action_a == action_b:
-            # 完全一致，取平均信心度
             avg_confidence = (decision_a['confidence'] + decision_b['confidence']) // 2
             
             return {
@@ -121,12 +343,11 @@ class DualModelDecisionAgent:
                 'entry_price': (decision_a['entry_price'] + decision_b['entry_price']) / 2,
                 'stop_loss': (decision_a['stop_loss'] + decision_b['stop_loss']) / 2,
                 'take_profit': (decision_a['take_profit'] + decision_b['take_profit']) / 2,
-                'reasoning': f'✅ 兩個模型一致建議: {action_a}. A: {decision_a["reasoning"]} | B: {decision_b["reasoning"]}',
+                'reasoning': f'✅ 兩個模型一致建議: {action_a}',
                 'risk_assessment': decision_a['risk_assessment'],
                 'agreement': True
             }
         else:
-            # 不一致，保守策略
             print("⚠️ 模型意見不一致，採用保守策略 (HOLD)")
             
             return {
@@ -137,45 +358,32 @@ class DualModelDecisionAgent:
                 'entry_price': decision_a['entry_price'],
                 'stop_loss': decision_a['stop_loss'],
                 'take_profit': decision_a['take_profit'],
-                'reasoning': f'⚠️ 模型意見分歧: A建議 {action_a}, B建議 {action_b}. 等待更明確訊號.',
+                'reasoning': f'⚠️ 模型意見分歧: {self.model_a.name}建議 {action_a}, {self.model_b.name}建議 {action_b}. 等待更明確訊號.',
                 'risk_assessment': 'HIGH',
                 'agreement': False
             }
     
     def _vote_decision(self, decision_a: Dict, decision_b: Dict) -> Dict:
-        """
-        投票模式: 簡單多數決
-        如果一致則通過，不一致則 HOLD
-        """
-        # 與 consensus 相同，但更寬鬆
         return self._consensus_decision(decision_a, decision_b)
     
     def _weighted_decision(self, decision_a: Dict, decision_b: Dict) -> Dict:
-        """
-        加權模式: 根據信心度加權
-        信心度高的模型權重更大
-        """
+        """加權模式"""
         action_a = decision_a['action']
         action_b = decision_b['action']
         conf_a = decision_a['confidence']
         conf_b = decision_b['confidence']
         
-        # 如果兩個動作一致
         if action_a == action_b:
             return self._consensus_decision(decision_a, decision_b)
         
-        # 如果不一致，選擇信心度高的
         if conf_a > conf_b:
             winner = decision_a
-            loser = decision_b
-            winner_name = 'Model A'
+            winner_name = self.model_a.name
         else:
             winner = decision_b
-            loser = decision_a
-            winner_name = 'Model B'
+            winner_name = self.model_b.name
         
-        # 但降低信心度（因為有爭議）
-        adjusted_confidence = int(winner['confidence'] * 0.7)  # 70% 折扣
+        adjusted_confidence = int(winner['confidence'] * 0.7)
         
         print(f"⚠️ 模型意見不一致，{winner_name} 信心度更高，但降低至 {adjusted_confidence}%")
         
@@ -183,17 +391,22 @@ class DualModelDecisionAgent:
             'action': winner['action'],
             'confidence': adjusted_confidence,
             'leverage': winner['leverage'],
-            'position_size_usdt': winner['position_size_usdt'] * 0.7,  # 減少倉位
+            'position_size_usdt': winner['position_size_usdt'] * 0.7,
             'entry_price': winner['entry_price'],
             'stop_loss': winner['stop_loss'],
             'take_profit': winner['take_profit'],
-            'reasoning': f'⚠️ {winner_name} 信心度更高 ({winner["confidence"]}% vs {loser["confidence"]}%), 但有爭議. {winner_name}: {winner["reasoning"]}',
+            'reasoning': f'⚠️ {winner_name} 信心度更高，但有爭議',
             'risk_assessment': 'MEDIUM',
             'agreement': False
         }
     
+    def _fallback_decision(self, market_data: Dict, account_info: Dict, position_info: Optional[Dict]) -> Dict:
+        """備用決策（當雙模型失敗時）"""
+        from core.llm_agent_position_aware import PositionAwareDeepSeekAgent
+        agent = PositionAwareDeepSeekAgent()
+        return agent.analyze_with_position(market_data, account_info, position_info)
+    
     def get_agreement_rate(self, last_n: int = 10) -> float:
-        """獲取最近 N 次決策的一致率"""
         if not self.decision_history:
             return 0.0
         
@@ -202,7 +415,6 @@ class DualModelDecisionAgent:
         return (agreements / len(recent)) * 100
     
     def get_model_performance(self) -> Dict:
-        """獲取兩個模型的表現統計"""
         if not self.decision_history:
             return {'total': 0, 'agreement_rate': 0}
         
@@ -213,5 +425,5 @@ class DualModelDecisionAgent:
             'total_decisions': total,
             'agreements': agreements,
             'disagreements': total - agreements,
-            'agreement_rate': (agreements / total) * 100
+            'agreement_rate': (agreements / total) * 100 if total > 0 else 0
         }
