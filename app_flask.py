@@ -1,7 +1,7 @@
 """
 Flask 主伺服器 - 取代 Streamlit
 支持即時更新、多 Tab 同時操作、無閃爍
-新增: 雙模型決策系統
+新增: 兩階段仲裁決策系統
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -25,11 +25,14 @@ try:
     from core.config_manager import ConfigManager
     from core.multi_api_manager import MultiAPIManager
     from core.dual_model_agent import DualModelDecisionAgent
+    from core.arbitrator_consensus_agent import ArbitratorConsensusAgent
     HAS_CONFIG_MANAGER = True
     HAS_DUAL_MODEL = True
+    HAS_ARBITRATOR = True
 except ImportError as e:
     HAS_CONFIG_MANAGER = False
     HAS_DUAL_MODEL = False
+    HAS_ARBITRATOR = False
     print(f"警告: 部分功能不可用 - {e}")
 
 app = Flask(__name__)
@@ -42,9 +45,11 @@ CASES_FILE = 'cases.json'
 
 app_state = {
     'ai_agent': None,
-    'dual_agent': None,  # 雙模型
-    'use_dual_model': False,  # 是否啟用雙模型
-    'dual_model_mode': 'consensus',  # consensus, vote, weighted
+    'dual_agent': None,
+    'arbitrator_agent': None,
+    'use_dual_model': False,
+    'use_arbitrator_consensus': False,
+    'dual_model_mode': 'consensus',
     'data_loader': None,
     'auto_update_enabled': False,
     'auto_update_thread': None,
@@ -68,8 +73,8 @@ def load_config():
             config = app_state['config_manager'].load()
             app_state['user_config'] = config
             
-            # 載入雙模型配置
             app_state['use_dual_model'] = config.get('use_dual_model', False)
+            app_state['use_arbitrator_consensus'] = config.get('use_arbitrator_consensus', False)
             app_state['dual_model_mode'] = config.get('dual_model_mode', 'consensus')
             
             print(f"配置已載入: {CONFIG_FILE}")
@@ -83,6 +88,7 @@ def load_config():
                 config = json.load(f)
                 app_state['user_config'] = config
                 app_state['use_dual_model'] = config.get('use_dual_model', False)
+                app_state['use_arbitrator_consensus'] = config.get('use_arbitrator_consensus', False)
                 app_state['dual_model_mode'] = config.get('dual_model_mode', 'consensus')
                 print(f"配置已載入: {CONFIG_FILE}")
                 return config
@@ -95,9 +101,10 @@ def save_config(config: Dict):
     try:
         app_state['user_config'] = config
         
-        # 保存雙模型配置
         if 'use_dual_model' in config:
             app_state['use_dual_model'] = config['use_dual_model']
+        if 'use_arbitrator_consensus' in config:
+            app_state['use_arbitrator_consensus'] = config['use_arbitrator_consensus']
         if 'dual_model_mode' in config:
             app_state['dual_model_mode'] = config['dual_model_mode']
         
@@ -142,13 +149,28 @@ def save_cases():
 
 
 def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optional[Dict]):
-    """獲取 AI 決策（單模型或雙模型）"""
+    """獲取 AI 決策（單模型/雙模型/兩階段仲裁）"""
     
-    # 如果啟用雙模型且可用
-    if app_state['use_dual_model'] and HAS_DUAL_MODEL:
+    # 優先檢查兩階段仲裁
+    if app_state['use_arbitrator_consensus'] and HAS_ARBITRATOR:
+        if not app_state['arbitrator_agent']:
+            app_state['arbitrator_agent'] = ArbitratorConsensusAgent()
+        
+        print("[DECISION] Using Arbitrator Consensus (2-stage)")
+        result = app_state['arbitrator_agent'].analyze_with_arbitration(
+            market_data=market_data,
+            account_info=account_info,
+            position_info=position_info
+        )
+        result['model_type'] = 'arbitrator'
+        return result
+    
+    # 雙模型
+    elif app_state['use_dual_model'] and HAS_DUAL_MODEL:
         if not app_state['dual_agent']:
             app_state['dual_agent'] = DualModelDecisionAgent()
         
+        print("[DECISION] Using Dual Model")
         decision = app_state['dual_agent'].analyze_with_dual_models(
             market_data=market_data,
             account_info=account_info,
@@ -158,11 +180,12 @@ def _get_ai_decision(market_data: Dict, account_info: Dict, position_info: Optio
         decision['model_type'] = 'dual'
         return decision
     
-    # 否則使用單模型
+    # 單模型
     else:
         if not app_state['ai_agent']:
             app_state['ai_agent'] = PositionAwareDeepSeekAgent()
         
+        print("[DECISION] Using Single Model")
         decision = app_state['ai_agent'].analyze_with_position(
             market_data=market_data,
             account_info=account_info,
@@ -185,10 +208,11 @@ def get_config():
         else:
             config = app_state['user_config']
         
-        # 添加雙模型配置
         config['use_dual_model'] = app_state['use_dual_model']
+        config['use_arbitrator_consensus'] = app_state['use_arbitrator_consensus']
         config['dual_model_mode'] = app_state['dual_model_mode']
         config['has_dual_model'] = HAS_DUAL_MODEL
+        config['has_arbitrator'] = HAS_ARBITRATOR
         
         return jsonify(config)
     except Exception as e:
@@ -219,6 +243,7 @@ def reset_config():
         
         app_state['user_config'] = {}
         app_state['use_dual_model'] = False
+        app_state['use_arbitrator_consensus'] = False
         app_state['dual_model_mode'] = 'consensus'
         
         if os.path.exists(CONFIG_FILE):
@@ -386,7 +411,6 @@ def analyze_market():
             }
             position_info = None
         
-        # 使用統一函數獲取決策
         decision = _get_ai_decision(latest_data, account_info, position_info)
         
         latest_price = float(df['close'].iloc[-1])
@@ -702,7 +726,7 @@ def _save_ai_prediction_log(
     if len(app_state['ai_prediction_logs']) > 100:
         app_state['ai_prediction_logs'] = app_state['ai_prediction_logs'][-100:]
     
-    model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] == 'dual' else ""
+    model_info = f" ({log_entry['model_type']} model)" if log_entry['model_type'] in ['dual', 'arbitrator'] else ""
     print(f"\nAI 預測已記錄: {log_entry['action']} (信心度 {log_entry['confidence']}%){model_info}")
     print(f"總記錄數: {len(app_state['ai_prediction_logs'])}")
 
@@ -745,7 +769,7 @@ def _update_previous_log_accuracy(logs: list, current_price: float):
         prev_log['is_correct'] = (predicted_direction == actual_direction)
     
     if prev_log['is_correct'] is not None:
-        result_text = "✅ 準確" if prev_log['is_correct'] else "❌ 錯誤"
+        result_text = "[OK] 準確" if prev_log['is_correct'] else "[FAIL] 錯誤"
         print(f"\n上次預測結果: {result_text}")
         print(f"  預測: {predicted_direction}, 實際: {actual_direction}")
 
@@ -770,8 +794,12 @@ if __name__ == '__main__':
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     
+    if HAS_ARBITRATOR:
+        print("    - Two-stage Arbitrator Consensus")
+        print(f"      Enabled: {app_state['use_arbitrator_consensus']}")
+    
     if HAS_DUAL_MODEL:
-        print("    - Dual-model decision system (NEW!)")
+        print("    - Dual-model decision system")
         print(f"      Mode: {app_state['dual_model_mode']}")
         print(f"      Enabled: {app_state['use_dual_model']}")
     
@@ -780,7 +808,12 @@ if __name__ == '__main__':
     if HAS_CONFIG_MANAGER:
         print("  Config Manager: Enabled")
     else:
-        print("  Config Manager: Disabled (install: pip install cryptography google-generativeai)")
+        print("  Config Manager: Disabled")
+    
+    if HAS_ARBITRATOR:
+        print("  Arbitrator: Enabled")
+    else:
+        print("  Arbitrator: Disabled")
     
     if HAS_DUAL_MODEL:
         print("  Dual Model: Enabled")
