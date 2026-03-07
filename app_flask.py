@@ -3,6 +3,7 @@ Flask 主伺服器 - 取代 Streamlit
 支持即時更新、多 Tab 同時操作、無閃爍
 新增: 兩階段仲裁決策系統
 修正: 啟動時自動讀取 config.json 並設定環境變數
+新增: 模型選擇器功能
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -36,6 +37,14 @@ except ImportError as e:
     HAS_DUAL_MODEL = False
     HAS_ARBITRATOR = False
     print(f"警告: 部分功能不可用 - {e}")
+
+# 導入模型選擇器 API 路由
+try:
+    from api_routes_model_selector import register_model_selector_routes
+    HAS_MODEL_SELECTOR = True
+except ImportError as e:
+    HAS_MODEL_SELECTOR = False
+    print(f"警告: 模型選擇器功能不可用 - {e}")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -841,6 +850,11 @@ if __name__ == '__main__':
     load_config()
     load_cases()
     
+    # 註冊模型選擇器 API 路由
+    if HAS_MODEL_SELECTOR:
+        register_model_selector_routes(app)
+        print("✅ 模型選擇器功能已啟用")
+    
     print("")
     print("=" * 60)
     print("  Flask Server Starting - STW AI Trading System")
@@ -857,6 +871,9 @@ if __name__ == '__main__':
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
     print("    - Decision history tracking (avoid duplicate)")
+    
+    if HAS_MODEL_SELECTOR:
+        print("    - Model selector (choose Model A/B/Arbitrator)")
     
     if HAS_ARBITRATOR:
         print("    - Two-stage Arbitrator Consensus")
@@ -894,6 +911,11 @@ if __name__ == '__main__':
         print("  Dual Model: Enabled")
     else:
         print("  Dual Model: Disabled")
+    
+    if HAS_MODEL_SELECTOR:
+        print("  Model Selector: Enabled")
+    else:
+        print("  Model Selector: Disabled")
     
     print("=" * 60)
     print("")
