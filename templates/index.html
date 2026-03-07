@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout_fix.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/model_selector.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/floating_chat.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar_toggle.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
     <style>
@@ -799,17 +800,17 @@
                         <div class="form-group">
                             <label>Groq API Key (速度最快)</label>
                             <input type="password" id="groqApiKey" class="form-control" placeholder="輸入 Groq API Key">
-                            <small class="form-text">注冊: https://console.groq.com</small>
+                            <small class="form-text">注冀: https://console.groq.com</small>
                         </div>
                         <div class="form-group">
                             <label>Google Gemini API Key (推理最強)</label>
                             <input type="password" id="googleApiKey" class="form-control" placeholder="輸入 Google API Key">
-                            <small class="form-text">注冊: https://aistudio.google.com</small>
+                            <small class="form-text">注冀: https://aistudio.google.com</small>
                         </div>
                         <div class="form-group">
                             <label>OpenRouter API Key (多模型)</label>
                             <input type="password" id="openrouterApiKey" class="form-control" placeholder="輸入 OpenRouter Key">
-                            <small class="form-text">注冊: https://openrouter.ai</small>
+                            <small class="form-text">注冀: https://openrouter.ai</small>
                         </div>
                         <div class="form-group">
                             <label>GitHub Token (選填)</label>
@@ -907,5 +908,6 @@
     
     <!-- 懸浮球聊天室 -->
     <script src="{{ url_for('static', filename='js/floating_chat.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar_toggle.js') }}"></script>
 </body>
 </html>
