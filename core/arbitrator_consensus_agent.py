@@ -25,6 +25,10 @@
   - 失敗自動降級，無需手動介入
   - Web UI 修改立即生效
   - 多時間框架避免小時間框架噪音
+
+修復：
+  - Payload Too Large: 減少歷史 K 棒數量 (20->10)
+  - Circular Reference: 移除 analysis_detail 循環引用
 """
 import json
 import time
@@ -268,11 +272,34 @@ class ArbitratorConsensusAgent:
     def _save_history(self):
         try:
             recent_decisions = self.decision_history[-100:]
+            
+            # 移除循環引用
+            safe_decisions = []
+            for record in recent_decisions:
+                safe_record = {
+                    'timestamp': record.get('timestamp'),
+                    'datetime': record.get('datetime'),
+                    'needed_arbitration': record.get('needed_arbitration'),
+                    'market_price': record.get('market_price')
+                }
+                
+                # 只保留必要的決策資訊
+                for key in ['decision_a', 'decision_b', 'final']:
+                    if key in record and record[key]:
+                        safe_record[key] = {
+                            'action': record[key].get('action'),
+                            'confidence': record[key].get('confidence'),
+                            'reasoning': record[key].get('reasoning', '')[:100]
+                        }
+                
+                safe_decisions.append(safe_record)
+            
             data = {
                 'last_updated': datetime.now().isoformat(),
                 'total_decisions': len(self.decision_history),
-                'decisions': recent_decisions
+                'decisions': safe_decisions
             }
+            
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
@@ -367,6 +394,7 @@ class ArbitratorConsensusAgent:
         print("  熱更新: 修改配置立即生效 (無需重啟)")
         print("  多時間框架: 15m (主) + 1h + 4h 分析")
         print("  逆勢操作: 允許在 1h 內高信心度逆勢")
+        print("  Payload 優化: 歷史 K 棒減少 (20->10)")
         print("="*70 + "\n")
     
     def _try_model_with_backups(self, primary_model, backup_models, system_prompt, user_prompt, label="Model"):
@@ -382,7 +410,10 @@ class ArbitratorConsensusAgent:
                 print(f"     理由: {decision['reasoning'][:80]}...")
                 return decision
             else:
-                print(f"[FAIL] [{primary_model.name}] 失敗: {result.get('error', 'Unknown')[:80]}")
+                error_msg = result.get('error', 'Unknown')[:150]
+                print(f"[FAIL] [{primary_model.name}] 失敗: {error_msg}")
+                if 'Payload Too Large' in error_msg or '413' in error_msg:
+                    print("       -> 建議: 減少歷史 K 棒數量")
         
         for idx, backup in enumerate(backup_models, 1):
             print(f"\n[BACKUP] 嘗試備用模型 {idx}: [{backup.name}]")
@@ -423,11 +454,23 @@ class ArbitratorConsensusAgent:
         print("="*70)
         
         recent_decisions = self._get_recent_decisions(5)
+        
+        # 減少 Payload: 歷史 K 棒從 20 根減至 10 根
+        if historical_candles and len(historical_candles) > 10:
+            historical_candles = historical_candles[-10:]
+        
+        # 減少 Payload: 成功案例從 10 個減至 3 個
+        if successful_cases and len(successful_cases) > 3:
+            successful_cases = successful_cases[:3]
+        
         system_prompt, user_prompt = self._prepare_prompts(
             market_data, account_info, position_info,
             historical_candles, successful_cases, recent_decisions,
             multi_timeframe_data
         )
+        
+        prompt_size = len(system_prompt) + len(user_prompt)
+        print(f"[INFO] Prompt 大小: {prompt_size:,} 字元")
         
         self.last_analysis_detail = {
             'timestamp': datetime.now().isoformat(),
@@ -449,8 +492,7 @@ class ArbitratorConsensusAgent:
                 'model_name': decision_a.get('model_name', 'Unknown'),
                 'action': decision_a['action'],
                 'confidence': decision_a['confidence'],
-                'reasoning': decision_a['reasoning'],
-                'full_response': decision_a.get('raw_reasoning', '')
+                'reasoning': decision_a['reasoning']
             }
         
         time.sleep(1)
@@ -468,8 +510,7 @@ class ArbitratorConsensusAgent:
                 'model_name': decision_b.get('model_name', 'Unknown'),
                 'action': decision_b['action'],
                 'confidence': decision_b['confidence'],
-                'reasoning': decision_b['reasoning'],
-                'full_response': decision_b.get('raw_reasoning', '')
+                'reasoning': decision_b['reasoning']
             }
         
         if decision_a and decision_b:
@@ -508,8 +549,7 @@ class ArbitratorConsensusAgent:
             final_decision = self._emergency_hold()
             final_decision['arbitration'] = False
         
-        self.last_analysis_detail['final_decision'] = final_decision
-        final_decision['analysis_detail'] = self.last_analysis_detail
+        # 不再在 final_decision 中包含 analysis_detail 避免循環引用
         
         self.decision_history.append({
             'timestamp': time.time(),
@@ -572,22 +612,12 @@ class ArbitratorConsensusAgent:
             "市場數據:", json.dumps(market_data, indent=2, ensure_ascii=False),
             "\n賬戶資訊:", json.dumps(account_info, indent=2, ensure_ascii=False),
             "\n持倉:", json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無',
-            "\n---\n最近決策:", json.dumps(recent_decisions, indent=2, ensure_ascii=False) if recent_decisions else '[]'
-        ]
-        
-        if multi_timeframe_data:
-            user_prompt_parts.extend([
-                "\n---\n多時間框架資訊:",
-                json.dumps(multi_timeframe_data, indent=2, ensure_ascii=False)
-            ])
-        
-        user_prompt_parts.extend([
             "\n---\nModel A 分析:",
             f"決策: {decision_a['action']}, 信心: {decision_a['confidence']}%, 理由: {decision_a['reasoning']}",
             "\n---\nModel B 分析:",
             f"決策: {decision_b['action']}, 信心: {decision_b['confidence']}%, 理由: {decision_b['reasoning']}",
             "\n---\n請作為仲裁者給出最終判斷。"
-        ])
+        ]
         arbitrator_user_prompt = "\n".join(user_prompt_parts)
         
         for idx, arbitrator in enumerate(self.arbitrator_candidates):
@@ -603,8 +633,7 @@ class ArbitratorConsensusAgent:
                     'model_name': arbitrator.name,
                     'action': final_decision['action'],
                     'confidence': final_decision['confidence'],
-                    'reasoning': final_decision['reasoning'],
-                    'full_response': result['content']
+                    'reasoning': final_decision['reasoning']
                 }
                 
                 print(f"[OK] 仲裁完成: {final_decision['action']} (信心 {final_decision['confidence']}%) - {result['elapsed_time']:.1f}s")
@@ -648,17 +677,12 @@ class ArbitratorConsensusAgent:
 - 不要在沒有持倉時 CLOSE
 - **主時間框架為 15分鐘**，但要參考 1h 和 4h 趨勢
 - **允許逆勢操作**：在信心度高 (>75%) 且技術指標強勁時，可以在 **1小時內** 做 15分鐘的逆勢操作
-- **逆勢條件**：
-  * 15m 超賣/超買 (RSI<30 or RSI>70)
-  * 1h 趨勢明確 (但 15m 短線反轉訊號)
-  * 信心度 > 75%
-  * 停損要緊 (1-2%)
 
 輸出 JSON 格式:
 {"action": "OPEN_LONG|OPEN_SHORT|CLOSE|HOLD", "confidence": 0-100, "leverage": 1-5, "position_size_usdt": 數字, "entry_price": 數字, "stop_loss": 數字, "take_profit": 數字, "reasoning": "詳細理由", "risk_assessment": "LOW|MEDIUM|HIGH", "is_counter_trend": true|false}"""
         
         user_prompt_parts = [
-            "=== 市場數據 (15m 主時間框架) ===",
+            "=== 市場數據 (15m) ===",
             json.dumps(market_data, indent=2, ensure_ascii=False),
             "\n=== 賬戶資訊 ===",
             json.dumps(account_info, indent=2, ensure_ascii=False),
@@ -666,29 +690,34 @@ class ArbitratorConsensusAgent:
             json.dumps(position_info, indent=2, ensure_ascii=False) if position_info else '無持倉'
         ]
         
+        # 多時間框架 - 只保留關鍵資訊
         if multi_timeframe_data:
+            simplified_mt = {}
+            for tf, data in multi_timeframe_data.items():
+                simplified_mt[tf] = {
+                    'current': data.get('current', {}),
+                    'trend': data.get('trend_analysis', {})
+                }
             user_prompt_parts.extend([
-                "\n=== 多時間框架分析 ===",
-                "\n** 注意 **：使用 1h 和 4h 判斷大趨勢，15m 做進出場時機",
-                "\n** 逆勢策略 **：如果 15m 超賣且 1h 看漲，可以高信心做多 (或相反)",
-                json.dumps(multi_timeframe_data, indent=2, ensure_ascii=False)
+                "\n=== 多時間框架 ===",
+                json.dumps(simplified_mt, indent=2, ensure_ascii=False)
             ])
         
         if historical_candles and len(historical_candles) > 0:
             user_prompt_parts.extend([
-                f"\n=== 歷史 K 棒 (15m, 前 {len(historical_candles)} 根) ===",
+                f"\n=== 歷史 K 棒 (前 {len(historical_candles)} 根) ===",
                 json.dumps(historical_candles, indent=2, ensure_ascii=False)
             ])
         
         if recent_decisions and len(recent_decisions) > 0:
             user_prompt_parts.extend([
-                f"\n=== 最近 {len(recent_decisions)} 次決策 ===",
+                f"\n=== 最近決策 ===",
                 json.dumps(recent_decisions, indent=2, ensure_ascii=False)
             ])
         
         if successful_cases and len(successful_cases) > 0:
             user_prompt_parts.extend([
-                f"\n=== 成功案例 (共 {len(successful_cases)} 個) ===",
+                f"\n=== 成功案例 ===",
                 json.dumps(successful_cases, indent=2, ensure_ascii=False)
             ])
         
