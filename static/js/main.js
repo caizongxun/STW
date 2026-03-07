@@ -1,5 +1,6 @@
 /**
  * 主 JavaScript 邏輯
+ * 修復: 優先顯示 adjusted_confidence
  */
 
 const socket = io();
@@ -177,6 +178,9 @@ async function analyzeMarket() {
         displaySignal(data);
         showSuccess('AI 分析完成');
         
+        // 觸發 AI 分析完成事件 (用於更新懸浮球聊天室)
+        window.dispatchEvent(new CustomEvent('aiAnalysisComplete'));
+        
     } catch (error) {
         showError(error.message);
     } finally {
@@ -188,8 +192,12 @@ async function analyzeMarket() {
 
 function displaySignal(data) {
     const decision = data.decision;
-    const action = decision.action || 'HOLD';
-    const confidence = decision.confidence || 0;
+    const action = decision.final_action || decision.action || 'HOLD';
+    
+    // 修復: 優先使用 adjusted_confidence，其次是 confidence
+    const confidence = decision.adjusted_confidence !== undefined ? 
+                       decision.adjusted_confidence : 
+                       (decision.confidence || 0);
     
     // 獲取 action 的顯示信息
     const actionInfo = getActionInfo(action);
@@ -216,10 +224,40 @@ function displaySignal(data) {
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">時間</div>
-                    <div class="stat-value" style="font-size: 14px;">${new Date(data.timestamp).toLocaleString('zh-TW')}</div>
+                    <div class="stat-value" style="font-size: 14px;">${new Date(data.timestamp).toLocaleString('zh-TW', {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'})}</div>
                 </div>
             </div>
     `;
+    
+    // 如果有三階段仲裁資訊
+    if (decision.execution_decision) {
+        html += `
+            <div class="stats-grid" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">執行決策</div>
+                    <div class="stat-value" style="font-size: 16px; color: ${decision.execution_decision === 'EXECUTE' ? 'var(--success-color)' : 'var(--warning-color)'}">
+                        ${decision.execution_decision}
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">模型類型</div>
+                    <div class="stat-value" style="font-size: 16px;">${decision.model_type || 'single'}</div>
+                </div>
+                ${decision.agreement !== undefined ? `
+                <div class="stat-card">
+                    <div class="stat-label">模型A/B共識</div>
+                    <div class="stat-value" style="font-size: 16px;">${decision.agreement ? '✅ 一致' : '❌ 分歧'}</div>
+                </div>
+                ` : ''}
+                ${decision.is_counter_trend !== undefined ? `
+                <div class="stat-card">
+                    <div class="stat-label">逆勢操作</div>
+                    <div class="stat-value" style="font-size: 16px;">${decision.is_counter_trend ? '✅ 是' : '❌ 否'}</div>
+                </div>
+                ` : ''}
+            </div>
+        `;
+    }
     
     // 如果有止損止盈資訊
     if (decision.stop_loss && decision.take_profit) {
@@ -235,22 +273,23 @@ function displaySignal(data) {
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">倉位</div>
-                    <div class="stat-value" style="font-size: 18px;">${decision.position_size_usdt || 0} USDT</div>
+                    <div class="stat-value" style="font-size: 18px;">${decision.adjusted_position_size || decision.position_size_usdt || 0} USDT</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">槓桿</div>
-                    <div class="stat-value" style="font-size: 18px;">${decision.leverage || 1}x</div>
+                    <div class="stat-value" style="font-size: 18px;">${decision.adjusted_leverage || decision.leverage || 1}x</div>
                 </div>
             </div>
         `;
     }
     
     // AI 推理
-    if (decision.reasoning) {
+    const reasoning = decision.executor_reasoning || decision.reasoning || '';
+    if (reasoning) {
         html += `
             <div style="background: var(--bg-dark); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
                 <h4 style="margin: 0 0 12px 0; color: var(--primary-color);">AI 推理</h4>
-                <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">${decision.reasoning.substring(0, 500)}${decision.reasoning.length > 500 ? '...' : ''}</p>
+                <p style="margin: 0; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap;">${reasoning.substring(0, 800)}${reasoning.length > 800 ? '...' : ''}</p>
             </div>
         `;
     }
