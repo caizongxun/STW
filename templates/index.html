@@ -4,9 +4,237 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>[V13] DeepSeek-R1 AI 交易決策系統</title>
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/model_selector.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <style>
+        /* AI 聊天室 Panel 樣式 */
+        .ai-chat-panel {
+            margin-top: 24px;
+            background: rgba(30, 40, 60, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+        }
+
+        .ai-chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.5);
+        }
+
+        .ai-chat-header h3 {
+            margin: 0;
+            color: #667eea;
+            font-size: 18px;
+        }
+
+        .ai-chat-toggle {
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid #667eea;
+            color: #667eea;
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .ai-chat-toggle:hover {
+            background: rgba(102, 126, 234, 0.4);
+        }
+
+        .ai-chat-content {
+            display: grid;
+            grid-template-columns: 60% 40%;
+            gap: 20px;
+            min-height: 300px;
+        }
+
+        .ai-responses {
+            background: rgba(20, 30, 50, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+
+        .ai-prompt-info {
+            background: rgba(15, 25, 45, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+
+        .chat-message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .model-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-model-a {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+        }
+
+        .badge-model-b {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+        }
+
+        .badge-arbitrator {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+        }
+
+        .badge-executor {
+            background: linear-gradient(135deg, #e67e22, #d35400);
+        }
+
+        .message-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid;
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        .bubble-model-a {
+            border-left-color: #3498db;
+        }
+
+        .bubble-model-b {
+            border-left-color: #2ecc71;
+        }
+
+        .bubble-arbitrator {
+            border-left-color: #9b59b6;
+        }
+
+        .bubble-executor {
+            border-left-color: #e67e22;
+        }
+
+        .decision-summary {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .decision-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .decision-row:last-child {
+            border-bottom: none;
+        }
+
+        .decision-label {
+            color: #aaa;
+            font-size: 13px;
+        }
+
+        .decision-value {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .action-OPEN_LONG {
+            color: #2ecc71;
+        }
+
+        .action-OPEN_SHORT {
+            color: #e74c3c;
+        }
+
+        .action-HOLD {
+            color: #f39c12;
+        }
+
+        .action-CLOSE {
+            color: #3498db;
+        }
+
+        .prompt-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .prompt-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+            overflow-x: auto;
+            max-height: 200px;
+        }
+
+        .code-block pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .ai-chat-empty {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* 隐藏/顯示动效 */
+        .ai-chat-panel.collapsed .ai-chat-content {
+            display: none;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -131,6 +359,26 @@
                         <h3 id="signalTitle">實時 AI 訊號</h3>
                         <div id="signalContent" class="signal-content">
                             <p class="text-muted">點擊「獲取實時訊號」開始分析</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- AI 聊天室 Panel -->
+                <div class="ai-chat-panel" id="aiChatPanel" style="display: none;">
+                    <div class="ai-chat-header">
+                        <h3>🤖 AI 分析實時對話</h3>
+                        <button class="ai-chat-toggle" id="aiChatToggle">收起</button>
+                    </div>
+                    <div class="ai-chat-content" id="aiChatContent">
+                        <div class="ai-responses">
+                            <div id="aiResponsesContainer" class="ai-chat-empty">
+                                <p>點擊「獲取實時訊號」後，這裡將顯示所有 AI 模型的完整回應</p>
+                            </div>
+                        </div>
+                        <div class="ai-prompt-info">
+                            <div id="aiPromptContainer" class="ai-chat-empty">
+                                <p>顯示 Prompt 與決策資訊</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -574,7 +822,7 @@
                         <div class="form-group">
                             <label>Cloudflare API Key (選填)</label>
                             <input type="password" id="cloudflareApiKey" class="form-control" placeholder="輸入 Cloudflare Key">
-                            <small class="form-text">高额度免費 API</small>
+                            <small class="form-text">高額度免費 API</small>
                         </div>
                     </div>
                     
@@ -643,17 +891,18 @@
         <p id="loadingText">處理中...</p>
     </div>
     
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ai_log.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bybit.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auto_update.js') }}"></script>
     <script src="{{ url_for('static', filename='js/cases.js') }}"></script>
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
-    
-    <!-- 兩階段仲裁 UI -->
     <script src="{{ url_for('static', filename='js/arbitrator_ui.js') }}"></script>
-    
-    <!-- 模型選擇器 -->
     <script src="{{ url_for('static', filename='js/model_selector.js') }}"></script>
+    
+    <!-- AI 聊天室 JS -->
+    <script src="{{ url_for('static', filename='js/ai_chat.js') }}"></script>
 </body>
 </html>
