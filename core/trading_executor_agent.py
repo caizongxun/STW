@@ -290,7 +290,18 @@ class TradingExecutorAgent:
                 result = self._call_openai_compatible(system_prompt, user_prompt)
             
             if result['success']:
-                review = self._parse_review(result['content'])
+                raw_content = result['content']
+                
+                # 嘗試解析
+                review = self._parse_review(raw_content)
+                
+                # 檢查是否解析失敗
+                if review['execution_decision'] == 'REJECT' and '解析失敗' in review['reasoning']:
+                    print("\n" + "="*70)
+                    print("[ERROR] 解析失敗 - AI 審核員完整回應:")
+                    print("="*70)
+                    print(raw_content)
+                    print("="*70 + "\n")
                 
                 # 應用審核結果
                 if review['execution_decision'] == 'EXECUTE':
