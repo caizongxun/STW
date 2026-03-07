@@ -1,6 +1,6 @@
 """
 Flask 主伺服器 - 取代 Streamlit
-支持即時更新、多 Tab 同時操作、無閃爍
+支持即時更新、多 Tab 同時操作、無閃爛
 """
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -19,6 +19,14 @@ from core.bybit_trader import BybitDemoTrader
 from strategies.v13.market_features import prepare_market_features
 from strategies.v13.config import V13Config
 from strategies.v13.backtester import V13Backtester
+
+try:
+    from core.config_manager import ConfigManager
+    from core.multi_api_manager import MultiAPIManager
+    HAS_CONFIG_MANAGER = True
+except ImportError:
+    HAS_CONFIG_MANAGER = False
+    print("警告: 未找到 ConfigManager 或 MultiAPIManager，配置功能可能不可用")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -39,11 +47,24 @@ app_state = {
     'bybit_trading': False,
     'bybit_thread': None,
     'user_config': {},
-    'cases': []
+    'cases': [],
+    'config_manager': None
 }
+
+if HAS_CONFIG_MANAGER:
+    app_state['config_manager'] = ConfigManager()
 
 
 def load_config():
+    if HAS_CONFIG_MANAGER and app_state['config_manager']:
+        try:
+            config = app_state['config_manager'].load()
+            app_state['user_config'] = config
+            print(f"配置已載入: {CONFIG_FILE}")
+            return config
+        except Exception as e:
+            print(f"載入配置失敗: {e}")
+    
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -59,12 +80,20 @@ def load_config():
 def save_config(config: Dict):
     try:
         app_state['user_config'] = config
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        if HAS_CONFIG_MANAGER and app_state['config_manager']:
+            app_state['config_manager'].save(config)
+            app_state['config_manager'].export_to_env()
+        else:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        
         print(f"配置已保存: {CONFIG_FILE}")
         return True
     except Exception as e:
         print(f"保存配置失敗: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -99,7 +128,13 @@ def index():
 
 @app.route('/api/config/get', methods=['GET'])
 def get_config():
-    return jsonify(app_state['user_config'])
+    try:
+        if HAS_CONFIG_MANAGER and app_state['config_manager']:
+            config = app_state['config_manager'].get_for_display()
+            return jsonify(config)
+        return jsonify(app_state['user_config'])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/config/save', methods=['POST'])
@@ -107,33 +142,103 @@ def save_user_config():
     try:
         config = request.json
         
-        if 'bybit_api_key' in config and config['bybit_api_key']:
-            api_key = config['bybit_api_key']
-            if len(api_key) > 12:
-                config['bybit_api_key_hint'] = f"{api_key[:8]}...{api_key[-4:]}"
-                config['bybit_api_key_saved'] = True
-                del config['bybit_api_key']
-        
-        if 'bybit_api_secret' in config and config['bybit_api_secret']:
-            config['bybit_api_secret_saved'] = True
-            del config['bybit_api_secret']
-        
-        save_config(config)
-        return jsonify({'success': True})
+        if save_config(config):
+            return jsonify({'success': True, 'message': '配置已保存'})
+        else:
+            return jsonify({'success': False, 'message': '保存失敗'}), 500
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/config/reset', methods=['POST'])
 def reset_config():
     try:
+        if HAS_CONFIG_MANAGER and app_state['config_manager']:
+            app_state['config_manager'].reset()
+        
         app_state['user_config'] = {}
         if os.path.exists(CONFIG_FILE):
             os.remove(CONFIG_FILE)
-        return jsonify({'success': True})
+        
+        return jsonify({'success': True, 'message': '配置已重設'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/config/test-apis', methods=['POST'])
+def test_apis():
+    try:
+        if not HAS_CONFIG_MANAGER:
+            return jsonify({
+                'error': '未安裝配置管理器，請安裝: pip install cryptography google-generativeai'
+            }), 500
+        
+        if not app_state['config_manager']:
+            return jsonify({'error': '配置管理器未初始化'}), 500
+        
+        app_state['config_manager'].export_to_env()
+        
+        api_manager = MultiAPIManager()
+        
+        available = 0
+        failed = []
+        providers = []
+        
+        for provider in api_manager.providers:
+            provider_info = {
+                'name': provider.name,
+                'model': provider.model_name,
+                'available': provider.is_available,
+                'priority': provider.priority
+            }
+            providers.append(provider_info)
+            
+            if provider.is_available:
+                available += 1
+            else:
+                failed.append(provider.name)
+        
+        return jsonify({
+            'success': True,
+            'total': len(api_manager.providers),
+            'available': available,
+            'failed': failed,
+            'providers': providers
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/config/api-stats', methods=['GET'])
+def get_api_stats():
+    try:
+        if not HAS_CONFIG_MANAGER:
+            return jsonify({
+                'total_providers': 0,
+                'available_providers': 0,
+                'providers': []
+            })
+        
+        if app_state['config_manager']:
+            app_state['config_manager'].export_to_env()
+        
+        api_manager = MultiAPIManager()
+        stats = api_manager.get_stats()
+        
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({
+            'total_providers': 0,
+            'available_providers': 0,
+            'providers': [],
+            'error': str(e)
+        })
 
 
 @app.route('/api/cases/list', methods=['GET'])
@@ -590,9 +695,18 @@ if __name__ == '__main__':
     print("    - WebSocket live updates")
     print("    - Auto AI prediction logging")
     print("    - Config auto-save & restore")
+    print("    - Encrypted API keys storage")
+    print("    - Multi-API management")
     print("    - Learning cases library")
     print("    - Module-level loading (no page refresh)")
     print("    - Multi-tab simultaneous operation")
+    print("=" * 60)
+    
+    if HAS_CONFIG_MANAGER:
+        print("  Config Manager: Enabled")
+    else:
+        print("  Config Manager: Disabled (install: pip install cryptography google-generativeai)")
+    
     print("=" * 60)
     print("")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
