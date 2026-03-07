@@ -1,10 +1,15 @@
 """
-兩階段仲裁決策系統 - 方案 B + 多層備用機制 + 配置檔熱更新 + 多時間框架
+三階段仲裁決策系統 - 方案 B + 多層備用機制 + 配置檔熱更新 + 多時間框架 + 交易執行審核
+
+階段1: Model A + Model B 快速分析
+階段2: 仲裁者決策 (意見分歧時)
+階段3: 交易執行審核 (最終把關) ← 新增!
 
 主力配置（方案 B）：
   - Model A: Llama 3.3 70B (Groq) - 第一選擇
   - Model B: Gemini 2.5 Flash (Google) - 修正模型名稱
   - 仲裁者: Llama 3.3 70B (Groq) - 速度快+穩定
+  - 執行審核員: Gemini 2.5 Flash (Google) - 最終把關
 
 備用機制：
   - Model A 失敗 -> Gemini Flash (Google) -> Mixtral 8x7B (Groq)
@@ -18,6 +23,7 @@
   - 詳細記錄: 記錄每次 prompt 和模型回應
   - 多時間框架: 15m (主) + 1h + 4h 看大趨勢
   - 逆勢操作: 允許在信心度高時做 1h 內逆勢
+  - 交易審核: 基於信心度和市場狀況最終核准
 
 優勢：
   - 跨平台備援：Groq + Google + OpenRouter
@@ -25,6 +31,7 @@
   - 失敗自動降級，無需手動介入
   - Web UI 修改立即生效
   - 多時間框架避免小時間框架噪音
+  - 三層把關減少错誤交易
 
 修復：
   - Payload Too Large: 減少歷史 K 棒數量 (20->10)
@@ -137,7 +144,7 @@ class GeminiModel(ModelInterface):
 
 class ArbitratorConsensusAgent:
     """
-    兩階段仲裁決策引擎 + 多層備用機制 + 配置檔熱更新 + 多時間框架
+    三階段仲裁決策引擎 + 多層備用機制 + 配置檔熱更新 + 多時間框架 + 交易執行審核
     方案 B: Groq + Google 雙平台
     失敗自動降級備用
     """
@@ -158,7 +165,8 @@ class ArbitratorConsensusAgent:
             {'provider': 'google', 'model': 'gemini-2.5-flash', 'name': 'Gemini_Flash'},
             {'provider': 'groq', 'model': 'mixtral-8x7b-32768', 'name': 'Mixtral_8x7B'},
             {'provider': 'openrouter', 'model': 'deepseek/deepseek-r1:free', 'name': 'DeepSeek_R1'}
-        ]
+        ],
+        'enable_trading_executor': True
     }
     
     def __init__(self, config_file: str = 'arbitrator_config.json'):
@@ -181,6 +189,18 @@ class ArbitratorConsensusAgent:
         self._load_history()
         
         self._init_models()
+        
+        # 初始化交易執行審核員
+        self.trading_executor = None
+        self.enable_executor = self.model_config.get('enable_trading_executor', True)
+        if self.enable_executor:
+            try:
+                from core.trading_executor_agent import TradingExecutorAgent
+                self.trading_executor = TradingExecutorAgent()
+                print("[OK] 交易執行審核員已啟動")
+            except Exception as e:
+                print(f"[WARNING] 交易執行審核員無法啟動: {e}")
+                self.trading_executor = None
     
     def _load_config(self) -> Dict:
         try:
@@ -322,7 +342,7 @@ class ArbitratorConsensusAgent:
     
     def _init_models(self):
         print("\n" + "="*70)
-        print("[SYSTEM] 方案 B: 雙平台均衡 + 多層備用機制 + 配置檔支持 + 多時間框架")
+        print("[SYSTEM] 方案 B: 雙平台均衡 + 多層備用 + 配置熱更新 + 多時間框架 + 交易審核")
         print("="*70)
         
         print("\n[MODEL A] 快速模型 A (按優先度):")
@@ -385,8 +405,17 @@ class ArbitratorConsensusAgent:
         print(f"  Model A: {1 if self.primary_model_a else 0} 主力 + {len(self.backup_models_a)} 備用")
         print(f"  Model B: {1 if self.primary_model_b else 0} 主力 + {len(self.backup_models_b)} 備用")
         print(f"  仲裁者: {len(self.arbitrator_candidates)} 候選人")
+        print(f"  執行審核員: {'Enabled' if self.trading_executor else 'Disabled'}")
         
-        print("\n[STRATEGY] 策略: 主力模型失敗 -> 自動嘗試備用模型")
+        print("\n[STRATEGY] 策略: 三階段決策流程")
+        print("  階段1: 兩個快速模型分析 (Model A + Model B)")
+        print("  階段2: 仲裁者決策 (分歧時調用)")
+        if self.trading_executor:
+            print("  階段3: 交易執行審核 (最終把關)")
+            print("    - 信心度 >= 60%: 自動執行")
+            print("    - 信心度 50-59%: 減少倉位 50%")
+            print("    - 信心度 < 50%: 拒絕執行")
+            print("    - 逆勢操作需要 >= 70% 信心度")
         print("  跨平台: Groq + Google + OpenRouter")
         print("  每天約 16,400+ 次請求")
         print(f"  決策歷史: {self.history_file}")
@@ -549,7 +578,25 @@ class ArbitratorConsensusAgent:
             final_decision = self._emergency_hold()
             final_decision['arbitration'] = False
         
-        # 不再在 final_decision 中包含 analysis_detail 避免循環引用
+        # 階段 3: 交易執行審核
+        if self.trading_executor:
+            execution_review = self.trading_executor.review_trading_decision(
+                arbitrator_decision=final_decision,
+                market_data=market_data,
+                account_info=account_info,
+                position_info=position_info,
+                multi_timeframe_data=multi_timeframe_data
+            )
+            
+            self.last_analysis_detail['model_responses']['executor'] = {
+                'execution_decision': execution_review['execution_decision'],
+                'final_action': execution_review['final_action'],
+                'adjusted_confidence': execution_review['adjusted_confidence'],
+                'reasoning': execution_review['executor_reasoning']
+            }
+            
+            # 使用審核後的決策
+            final_decision = execution_review
         
         self.decision_history.append({
             'timestamp': time.time(),
@@ -565,10 +612,15 @@ class ArbitratorConsensusAgent:
         print("\n" + "="*70)
         print("[FINAL] 最終決策")
         print("="*70)
-        print(f"Action: {final_decision['action']}")
-        print(f"Confidence: {final_decision['confidence']}%")
-        print("[ARBITRATOR] 由仲裁者決定" if final_decision.get('arbitration') else "[CONSENSUS] 兩個模型共識")
-        print(f"Reasoning: {final_decision['reasoning'][:150]}...")
+        print(f"Action: {final_decision.get('final_action', final_decision.get('action'))}")
+        print(f"Confidence: {final_decision.get('adjusted_confidence', final_decision.get('confidence'))}%")
+        if 'execution_decision' in final_decision:
+            print(f"Execution: {final_decision['execution_decision']}")
+        elif final_decision.get('arbitration'):
+            print("[ARBITRATOR] 由仲裁者決定")
+        else:
+            print("[CONSENSUS] 兩個模型共識")
+        print(f"Reasoning: {final_decision.get('executor_reasoning', final_decision.get('reasoning', ''))[:150]}...")
         print("="*70 + "\n")
         
         return final_decision
@@ -758,10 +810,16 @@ class ArbitratorConsensusAgent:
         if not self.decision_history:
             return {'total': 0}
         total = len(self.decision_history)
-        return {
+        stats = {
             'total_decisions': total,
             'agreements': self.agreement_count,
             'arbitrations': self.arbitration_count,
             'agreement_rate': (self.agreement_count / total) * 100 if total > 0 else 0,
             'arbitration_rate': (self.arbitration_count / total) * 100 if total > 0 else 0
         }
+        
+        if self.trading_executor:
+            executor_stats = self.trading_executor.get_statistics()
+            stats['executor'] = executor_stats
+        
+        return stats
